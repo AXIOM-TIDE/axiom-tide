@@ -13,7 +13,7 @@
  */
 import React, { useEffect, useState } from 'react'
 import { IconDock } from '../components/Icons'
-import { fetchSentFlares, fetchClaimedDocks, fetchCastById } from '../sui/client'
+import { fetchSentFlares, fetchClaimedDocks, fetchCastById, fetchDockClaimsByCastId } from '../sui/client'
 import { getAddress } from '../sui/zklogin'
 
 interface SentFlare {
@@ -30,6 +30,7 @@ interface SentFlare {
   claimsUsed?: number
   maxClaims?: number
   revenue?: number
+  claimedAt?: number
 }
 
 interface ClaimedDock {
@@ -52,6 +53,8 @@ export function DockPanel() {
   const [claimed, setClaimed]     = useState<ClaimedDock[]>([])
   const [loading, setLoading]     = useState(true)
   const [expandedId, setExpandedId] = useState<string|null>(null)
+  const [returningId, setReturningId] = useState<string|null>(null)
+  const [returnStatus, setReturnStatus] = useState<Record<string, string>>({})
 
   useEffect(() => {
     loadDockData()
@@ -105,6 +108,7 @@ export function DockPanel() {
       let claimsUsed = 0
       let maxClaims = 1
       let revenue = 0
+      let claimedAt = 0
 
       // Fetch live cast status
       const cast = await fetchCastById(ev.castId)
@@ -114,6 +118,14 @@ export function DockPanel() {
         if (cast.burned) status = 'burned'
         else if (cast.isDockFull) { status = 'claimed'; revenue = Math.floor(cast.feePaid * 0.97) * claimsUsed }
         else if (!cast.isLighthouse && cast.expiresAt < now) status = 'expired'
+      }
+
+      if (claimsUsed > 0) {
+        const claims = await fetchDockClaimsByCastId(ev.castId)
+        claimedAt = claims
+          .map(c => c.claimedAt)
+          .filter(Boolean)
+          .sort((a, b) => b - a)[0] ?? 0
       }
 
       enrichedSent.push({
@@ -129,6 +141,7 @@ export function DockPanel() {
         claimsUsed,
         maxClaims,
         revenue,
+        claimedAt,
       })
     }
     setSent(enrichedSent)
@@ -187,6 +200,50 @@ export function DockPanel() {
     burned:  'BURNED',
   }
 
+  const RETURN_FLARE_WINDOW_MS = 48 * 60 * 60 * 1000
+
+  function returnFlareEligibility(f: SentFlare): { ok: boolean; label: string } {
+    if (!f.recipient) return { ok: false, label: 'missing recipient email' }
+    if ((f.claimsUsed ?? 0) <= 0 || !f.claimedAt) return { ok: false, label: 'not claimed yet' }
+    const remaining = RETURN_FLARE_WINDOW_MS - (Date.now() - f.claimedAt)
+    if (remaining <= 0) return { ok: false, label: '48h window closed' }
+    const hours = Math.ceil(remaining / 3_600_000)
+    return { ok: true, label: `${hours}h left` }
+  }
+
+  async function sendReturnFlare(f: SentFlare) {
+    const eligibility = returnFlareEligibility(f)
+    if (!eligibility.ok) {
+      setReturnStatus(s => ({ ...s, [f.castId]: eligibility.label }))
+      return
+    }
+
+    setReturningId(f.castId)
+    setReturnStatus(s => ({ ...s, [f.castId]: 'sending…' }))
+    try {
+      const res = await fetch('https://conk-zkproxy-v2.italktonumbers.workers.dev/return-flare', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to:        f.recipient,
+          hook:      f.hook,
+          castId:    f.castId,
+          amount:    (f.price ?? 0) / 1_000_000,
+          claimedAt: f.claimedAt,
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => null)
+        throw new Error(err?.error ?? `Return Flare failed (${res.status})`)
+      }
+      setReturnStatus(s => ({ ...s, [f.castId]: 'Return Flare sent' }))
+    } catch (err: any) {
+      setReturnStatus(s => ({ ...s, [f.castId]: err?.message ?? 'Return Flare failed' }))
+    } finally {
+      setReturningId(null)
+    }
+  }
+
   return (
     <div data-testid="dock-panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
@@ -230,7 +287,9 @@ export function DockPanel() {
                 </div>
               </div>
             )}
-            {sent.map(f => (
+            {sent.map(f => {
+              const eligibility = returnFlareEligibility(f)
+              return (
               <div key={f.castId} onClick={() => setExpandedId(expandedId === f.castId ? null : f.castId)} style={{
                 padding: '12px', marginBottom: '8px',
                 background: 'var(--surface)', border: expandedId === f.castId ? '1px solid var(--teal)' : '1px solid var(--border2)',
@@ -253,19 +312,42 @@ export function DockPanel() {
                 <div style={{ fontSize: '14px', color: 'var(--text)', marginBottom: '6px', wordBreak: 'break-word' }}>
                   {f.hook}
                 </div>
-                <div style={{ display: 'flex', gap: '16px', fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text-off)' }}>
+                <div style={{ display: 'flex', gap: '16px', fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text-off)', flexWrap: 'wrap' }}>
                   {f.recipient && <span>To: {f.recipient}</span>}
                   <span>Price: ${((f.price ?? 0) / 1_000_000).toFixed(2)}</span>
                   <span>Dock: {f.claimsUsed ?? 0}/{f.maxClaims ?? 1}</span>
+                  {f.claimedAt ? <span>Claimed: {formatTime(f.claimedAt)}</span> : null}
                   {(f.revenue ?? 0) > 0 && <span style={{ color: 'var(--teal)' }}>Earned: ${((f.revenue ?? 0) / 1_000_000).toFixed(2)}</span>}
                 </div>
-                {expandedId === f.castId && f.body && (
-                  <div style={{ marginTop: '10px', padding: '12px', background: 'var(--surface2)', borderRadius: 'var(--radius)', fontSize: '13px', color: 'var(--text-dim)', lineHeight: 1.7, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                    {f.body}
+                {expandedId === f.castId && (
+                  <div onClick={e => e.stopPropagation()} style={{ marginTop: '10px' }}>
+                    {f.body && (
+                      <div style={{ padding: '12px', background: 'var(--surface2)', borderRadius: 'var(--radius)', fontSize: '13px', color: 'var(--text-dim)', lineHeight: 1.7, whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginBottom: '10px' }}>
+                        {f.body}
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <button
+                        onClick={() => sendReturnFlare(f)}
+                        disabled={!eligibility.ok || returningId === f.castId}
+                        style={{
+                          padding: '7px 11px', borderRadius: 'var(--radius)',
+                          border: `1px solid ${eligibility.ok ? 'var(--teal)' : 'var(--border)'}`,
+                          background: eligibility.ok ? 'rgba(0,184,230,0.08)' : 'var(--surface2)',
+                          color: eligibility.ok ? 'var(--teal)' : 'var(--text-off)',
+                          fontFamily: 'var(--font-mono)', fontSize: '10px', cursor: eligibility.ok ? 'pointer' : 'not-allowed',
+                          letterSpacing: '0.04em',
+                        }}>
+                        {returningId === f.castId ? 'Sending…' : 'Return Flare'}
+                      </button>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: eligibility.ok ? 'var(--teal)' : 'var(--text-off)' }}>
+                        {returnStatus[f.castId] ?? eligibility.label}
+                      </span>
+                    </div>
                   </div>
                 )}
               </div>
-            ))}
+            )})}
           </>
         )}
 

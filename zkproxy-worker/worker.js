@@ -57,6 +57,15 @@ function errResponse(message, status, origin) {
   return jsonResponse({ error: message }, status, origin)
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 // ─── Rate limiter ─────────────────────────────────────────────────────────────
 
 async function checkRateLimit(kv, key, max) {
@@ -294,6 +303,60 @@ export default {
           status:  resp.status,
           headers: { ...corsHeaders(origin), 'Content-Type': 'application/json' },
         })
+      }
+
+      // ── Return Flare email delivery ───────────────────────────────────────
+      // Must sit before generic /flare handler: /return-flare includes "flare".
+      if (path.includes('return-flare') && request.method === 'POST') {
+        const apiKey = env.RESEND_API_KEY
+        if (!apiKey) return errResponse('RESEND_API_KEY not configured', 503, origin)
+
+        let data
+        try { data = JSON.parse(rawBody) } catch { return errResponse('Bad JSON', 400, origin) }
+
+        const { to, hook, castId, amount, note, claimedAt } = data
+        if (!to || !hook || !castId) return errResponse('Missing fields', 400, origin)
+
+        const amountLabel = Number(amount || 0) > 0
+          ? `$${Number(amount).toFixed(3)} USDC`
+          : 'the original read amount'
+        const claimedLabel = Number(claimedAt || 0) > 0
+          ? new Date(Number(claimedAt)).toUTCString()
+          : 'recently'
+
+        const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+          body{background:#000208;color:#a8ccdc;font-family:monospace;margin:0;padding:32px}
+          .card{background:#020b18;border:1px solid rgba(0,212,255,0.2);padding:28px 32px;max-width:560px;margin:0 auto}
+          .label{font-size:11px;letter-spacing:0.3em;text-transform:uppercase;color:rgba(0,212,255,0.5);margin-bottom:8px}
+          .hook{font-size:22px;font-weight:700;color:#d0eef8;margin-bottom:16px;line-height:1.3}
+          .body{font-size:14px;color:rgba(168,204,220,0.7);line-height:1.8;margin-bottom:24px;white-space:pre-wrap}
+          .pill{display:inline-block;border:1px solid rgba(0,212,255,0.35);color:#00d4ff;padding:8px 12px;border-radius:999px;font-size:12px;margin-bottom:22px}
+          .footer{margin-top:24px;font-size:10px;color:rgba(168,204,220,0.25);letter-spacing:0.1em;line-height:1.8}
+        </style></head><body><div class="card">
+          <div class="label">// CONK Return Flare</div>
+          <div class="hook">${escapeHtml(hook)}</div>
+          <div class="body">The author issued a Return Flare for this cast. They intend to return ${escapeHtml(amountLabel)} from the read claimed ${escapeHtml(claimedLabel)}.</div>
+          ${note ? `<div class="body">${escapeHtml(note)}</div>` : ''}
+          <div class="pill">Return window: 48 hours</div>
+          <div class="footer">
+            Cast: ${escapeHtml(castId)}<br>
+            Powered by CONK Protocol &middot; Sui Mainnet &middot; Axiom Tide LLC<br>
+            This notification does not custody funds. Refund transfer is author-issued.
+          </div>
+        </div></body></html>`
+
+        const res = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ from: 'CONK Return Flare <flare@conk.app>', to: [to], subject: `Return Flare: ${hook}`, html }),
+        })
+
+        if (!res.ok) {
+          const err = await res.text().catch(() => String(res.status))
+          return errResponse(err, 502, origin)
+        }
+
+        return jsonResponse({ ok: true }, 200, origin)
       }
 
       // ── Flare email delivery ──────────────────────────────────────────────

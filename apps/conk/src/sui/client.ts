@@ -444,27 +444,55 @@ export async function fetchSentFlares(authorAddress: string): Promise<Array<{
   }
 }
 
+export interface DockClaimEvent {
+  castId:     string
+  claimsUsed: number
+  maxClaims:  number
+  claimedAt:  number
+  sender:     string
+}
+
+function mapDockClaimEvent(e: any): DockClaimEvent {
+  return {
+    castId:     e.parsedJson.cast_id,
+    claimsUsed: Number(e.parsedJson.claims_used ?? 0),
+    maxClaims:  Number(e.parsedJson.max_claims ?? 0),
+    claimedAt:  Number(e.parsedJson.claimed_at ?? 0),
+    sender:     e.sender ?? '',
+  }
+}
+
+async function fetchDockClaimEvents(): Promise<DockClaimEvent[]> {
+  const events = await rpc('suix_queryEvents', [
+    { MoveEventType: `${PACKAGE}::cast::DockClaimed` },
+    null, 50, true,
+  ])
+  if (!events?.data) return []
+  return events.data.map(mapDockClaimEvent)
+}
+
 // ── Query Docks claimed by a reader ───────────────────────────
 // Returns DockClaimed events where sender = readerAddress
 export async function fetchClaimedDocks(readerAddress: string): Promise<Array<{
   castId: string; claimsUsed: number; maxClaims: number; claimedAt: number
 }>> {
   try {
-    const events = await rpc('suix_queryEvents', [
-      { MoveEventType: `${PACKAGE}::cast::DockClaimed` },
-      null, 50, true,
-    ])
-    if (!events?.data) return []
-    return events.data
-      .filter((e: any) => e.sender === readerAddress)
-      .map((e: any) => ({
-        castId:     e.parsedJson.cast_id,
-        claimsUsed: Number(e.parsedJson.claims_used ?? 0),
-        maxClaims:  Number(e.parsedJson.max_claims ?? 0),
-        claimedAt:  Number(e.parsedJson.claimed_at ?? 0),
-      }))
+    return (await fetchDockClaimEvents())
+      .filter((e) => e.sender === readerAddress)
+      .map(({ castId, claimsUsed, maxClaims, claimedAt }) => ({ castId, claimsUsed, maxClaims, claimedAt }))
   } catch (err) {
     console.error('[fetchClaimedDocks] failed:', err)
+    return []
+  }
+}
+
+// ── Query claim events for a specific cast ────────────────────
+// Author-side Return Flare uses this to enforce the 48h window.
+export async function fetchDockClaimsByCastId(castId: string): Promise<DockClaimEvent[]> {
+  try {
+    return (await fetchDockClaimEvents()).filter((e) => e.castId === castId)
+  } catch (err) {
+    console.error('[fetchDockClaimsByCastId] failed:', err)
     return []
   }
 }
