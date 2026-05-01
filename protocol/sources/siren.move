@@ -10,6 +10,9 @@ module axiom_tide::siren {
     use sui::transfer;
     use sui::event;
     use sui::clock::{Self, Clock};
+    use sui::coin::Coin;
+    use 0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC;
+    use axiom_tide::abyss::{Self, Abyss};
 
     const E_SIREN_EXPIRED: u64 = 1;
     const E_NOT_OWNER:     u64 = 2;
@@ -48,12 +51,15 @@ module axiom_tide::siren {
     }
 
     public fun sound(
+        fee_coin:        Coin<USDC>,
+        abyss:           &mut Abyss,
         owner_vessel_id: ID,
         dock_id:         ID,
         hook:            vector<u8>,
         clock:           &Clock,
         ctx:             &mut TxContext,
     ) {
+        abyss::receive_siren(abyss, fee_coin, clock, ctx);
         let owner = tx_context::sender(ctx);
         let now   = clock::timestamp_ms(clock);
         let siren = Siren {

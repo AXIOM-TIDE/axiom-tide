@@ -28,7 +28,7 @@ module axiom_tide::cast {
     const MIN_PAID_PRICE:    u64 = 100_000;
 
     const DOCK_SLOT_PRICE:        u64 = 10_000;
-    const MIN_FLARE_PUBLISH_FEE:  u64 = 10_000;  // v6: $0.01 minimum to send a Flare (EYES_ONLY)
+    const MIN_FLARE_PUBLISH_FEE:  u64 = 50_000;  // v6: $0.05 minimum to send a Flare (EYES_ONLY)
     const MIN_MAX_CLAIMS:    u64 = 1;
     const MAX_MAX_CLAIMS:    u64 = 10_000;
 
@@ -144,7 +144,7 @@ module axiom_tide::cast {
         let paid_amount = coin::value(&fee_coin);
         assert!(paid_amount >= dock_upgrade_fee, E_INSUFFICIENT_UPGRADE_FEE);
 
-        // v6: Flares require minimum publish fee
+        // v6: Flares require $0.05 minimum publish fee
         if (mode == MODE_EYES_ONLY) {
             assert!(paid_amount >= MIN_FLARE_PUBLISH_FEE + dock_upgrade_fee, E_INSUFFICIENT_FLARE_FEE);
         };

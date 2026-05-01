@@ -516,8 +516,8 @@ export async function soundCast(opts: {
   const tx    = new Transaction()
   const coins = await getUsdcCoins(session.address)
 
-  // v6: Flares (mode 2, EYES_ONLY) require $0.01 publish fee. Non-Flares pay $0.001 baseline.
-  const publishFee = opts.mode === 2 ? 10_000 : 1_000
+  // v6: Flares (mode 2, EYES_ONLY) require $0.05 publish fee. Non-Flares pay $0.001 baseline.
+  const publishFee = opts.mode === 2 ? 50_000 : 1_000
   const [feeCoin] = tx.splitCoins(tx.object(coins[0].coinObjectId), [tx.pure.u64(publishFee)])
 
   tx.moveCall({
@@ -554,6 +554,27 @@ export async function soundCast(opts: {
   }
 
   return { digest: result.digest, castId }
+}
+
+// ── Pay Return Flare fee on-chain ─────────────────────────────
+export async function payReturnFlareFee(): Promise<string> {
+  const session = getSession()
+  if (!session) throw new Error('No session')
+
+  const { Transaction } = await import('@mysten/sui/transactions')
+  const tx    = new Transaction()
+  const coins = await getUsdcCoins(session.address)
+
+  const [feeCoin] = tx.splitCoins(tx.object(coins[0].coinObjectId), [tx.pure.u64(50_000)])
+
+  tx.moveCall({
+    target:    `${PACKAGE}::abyss::receive_return_flare`,
+    arguments: [tx.object(ABYSS), feeCoin, tx.object(CLOCK)],
+  })
+
+  tx.setSender(session.address)
+  const result = await executeTx(tx, session.address)
+  return result.digest
 }
 
 // ── Withdraw Harbor ───────────────────────────────────────────

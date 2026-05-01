@@ -119,7 +119,7 @@ export default async function handler(req, res) {
     const keypair = keypairFromEnv()
     const sender = keypair.getPublicKey().toSuiAddress()
     const client = new SuiClient({ url: SUI_RPC })
-    const publishFee = input.mode === modeMap.eyes_only ? 10_000 : 1_000
+    const publishFee = input.mode === modeMap.eyes_only ? 50_000 : 1_000
     const coinId = await getUsdcCoin(client, sender, publishFee)
 
     const tx = new Transaction()

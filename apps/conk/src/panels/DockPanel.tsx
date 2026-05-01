@@ -13,7 +13,7 @@
  */
 import React, { useEffect, useState } from 'react'
 import { IconDock } from '../components/Icons'
-import { fetchSentFlares, fetchClaimedDocks, fetchCastById, fetchDockClaimsByCastId } from '../sui/client'
+import { fetchSentFlares, fetchClaimedDocks, fetchCastById, fetchDockClaimsByCastId, payReturnFlareFee } from '../sui/client'
 import { getAddress } from '../sui/zklogin'
 
 interface SentFlare {
@@ -221,6 +221,10 @@ export function DockPanel() {
     setReturningId(f.castId)
     setReturnStatus(s => ({ ...s, [f.castId]: 'sending…' }))
     try {
+      setReturnStatus(s => ({ ...s, [f.castId]: 'paying $0.05 fee…' }))
+      const txDigest = await payReturnFlareFee()
+      setReturnStatus(s => ({ ...s, [f.castId]: 'sending…' }))
+
       const res = await fetch('https://conk-zkproxy-v2.italktonumbers.workers.dev/return-flare', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -230,6 +234,7 @@ export function DockPanel() {
           castId:    f.castId,
           amount:    (f.price ?? 0) / 1_000_000,
           claimedAt: f.claimedAt,
+          txDigest,
         }),
       })
       if (!res.ok) {
