@@ -18,6 +18,7 @@ module axiom_tide::abyss {
     const FEE_CAST:     u64 = 1_000;
     const FEE_READ:     u64 = 1_000;
     const FEE_SIREN:    u64 = 30_000;
+    const FEE_RETURN_FLARE: u64 = 50_000;
     const FEE_DOCK:     u64 = 500_000;
     const FEE_LH_VISIT: u64 = 1_000;
     const FEE_LH_KILL:  u64 = 1_000_000_000_000;
@@ -79,6 +80,9 @@ module axiom_tide::abyss {
     public fun receive_siren(a: &mut Abyss, p: Coin<USDC>, c: &Clock, ctx: &TxContext) {
         deposit(a, p, FEE_SIREN,    b"siren:sound",      c, ctx);
     }
+    public fun receive_return_flare(a: &mut Abyss, p: Coin<USDC>, c: &Clock, ctx: &TxContext) {
+        deposit(a, p, FEE_RETURN_FLARE, b"return_flare:send", c, ctx);
+    }
     public fun receive_dock(a: &mut Abyss, p: Coin<USDC>, c: &Clock, ctx: &TxContext) {
         deposit(a, p, FEE_DOCK,     b"dock:open",        c, ctx);
     }
@@ -96,6 +100,7 @@ module axiom_tide::abyss {
     public fun fee_cast():     u64 { FEE_CAST }
     public fun fee_read():     u64 { FEE_READ }
     public fun fee_siren():    u64 { FEE_SIREN }
+    public fun fee_return_flare(): u64 { FEE_RETURN_FLARE }
     public fun fee_dock():     u64 { FEE_DOCK }
     public fun fee_lh_visit(): u64 { FEE_LH_VISIT }
     public fun fee_lh_kill():  u64 { FEE_LH_KILL }

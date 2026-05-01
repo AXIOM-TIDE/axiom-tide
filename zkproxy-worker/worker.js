@@ -17,6 +17,9 @@ import { Transaction }    from '@mysten/sui/transactions'
 
 const SUI_RPC   = 'https://fullnode.mainnet.sui.io/'
 const ENOKI_URL = 'https://api.enoki.mystenlabs.com/v1/zklogin/zkp'
+const CONK_TREASURY = '0xe0117fba317d2267b8d90adca1fe79eceeec756bcf54edf04cc29ee5306ab32e'
+const CONK_USDC_TYPE = '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC'
+const RETURN_FLARE_FEE_USDC = 50_000
 
 const GAS_FLOOR_MIST          = 500_000_000n  // 0.5 SUI
 const MAX_GAS_PER_IP_PER_HOUR = 50
@@ -118,6 +121,63 @@ function toB64(bytes) {
 
 function fromB64(str) {
   return Uint8Array.from(atob(str), c => c.charCodeAt(0))
+}
+
+
+// ─── Return Flare fee verification ───────────────────────────────────────────
+
+function eventAmount(event) {
+  const amount = Number(event?.parsedJson?.amount ?? 0)
+  return Number.isFinite(amount) ? amount : 0
+}
+
+function balanceChangeAmount(change) {
+  const amount = Number(change?.amount ?? 0)
+  return Number.isFinite(amount) ? amount : 0
+}
+
+function isTreasuryOwner(owner) {
+  if (!owner) return false
+  if (owner.AddressOwner) return owner.AddressOwner === CONK_TREASURY
+  if (owner.ObjectOwner) return owner.ObjectOwner === CONK_TREASURY
+  return false
+}
+
+async function verifyReturnFlareFeeTx(txDigest, kv) {
+  if (!txDigest || typeof txDigest !== 'string') return { ok: false, error: 'Return Flare fee txDigest required' }
+
+  const seenKey = 'return-flare-fee:' + txDigest
+  if (kv) {
+    const seen = await kv.get(seenKey).catch(() => null)
+    if (seen) return { ok: false, error: 'Return Flare fee txDigest already used' }
+  }
+
+  const tx = await rpc('sui_getTransactionBlock', [txDigest, {
+    showEffects: true,
+    showEvents: true,
+    showBalanceChanges: true,
+  }])
+
+  if (tx?.effects?.status?.status !== 'success') return { ok: false, error: 'Return Flare fee transaction failed' }
+
+  const feeEvent = (tx.events || []).find((event) =>
+    event.type?.endsWith('::abyss::FeeReceived') &&
+    eventAmount(event) >= RETURN_FLARE_FEE_USDC
+  )
+
+  const treasuryCredit = (tx.balanceChanges || []).find((change) =>
+    change.coinType === CONK_USDC_TYPE &&
+    isTreasuryOwner(change.owner) &&
+    balanceChangeAmount(change) >= RETURN_FLARE_FEE_USDC
+  )
+
+  if (!feeEvent && !treasuryCredit) return { ok: false, error: 'Return Flare fee transaction not found' }
+
+  if (kv) {
+    await kv.put(seenKey, '1', { expirationTtl: 60 * 60 * 24 * 30 }).catch(() => {})
+  }
+
+  return { ok: true }
 }
 
 // ─── Circuit breaker ──────────────────────────────────────────────────────────
@@ -314,8 +374,11 @@ export default {
         let data
         try { data = JSON.parse(rawBody) } catch { return errResponse('Bad JSON', 400, origin) }
 
-        const { to, hook, castId, amount, note, claimedAt } = data
+        const { to, hook, castId, amount, note, claimedAt, txDigest } = data
         if (!to || !hook || !castId) return errResponse('Missing fields', 400, origin)
+
+        const feeCheck = await verifyReturnFlareFeeTx(txDigest, env.RATE_LIMITER)
+        if (!feeCheck.ok) return errResponse(feeCheck.error, 402, origin)
 
         const amountLabel = Number(amount || 0) > 0
           ? `$${Number(amount).toFixed(3)} USDC`
@@ -356,7 +419,7 @@ export default {
           return errResponse(err, 502, origin)
         }
 
-        return jsonResponse({ ok: true }, 200, origin)
+        return jsonResponse({ ok: true, txDigest }, 200, origin)
       }
 
       // ── Flare email delivery ──────────────────────────────────────────────
