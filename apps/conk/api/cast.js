@@ -30,14 +30,14 @@ function fail(res, status, error, message, extra = {}) {
   return res.status(status).json({ ok: false, error, message, ...extra })
 }
 
-function validateAuth(req) {
-  const configured = (process.env.CONK_API_KEYS || process.env.CONK_API_KEY || '')
+function readConfiguredApiKeys() {
+  return (process.env.CONK_API_KEYS || process.env.CONK_API_KEY || '')
     .split(',')
     .map((key) => key.trim())
     .filter(Boolean)
+}
 
-  if (!configured.length) return true
-
+function validateAuth(req, configured) {
   const auth = req.headers.authorization || ''
   const bearer = auth.startsWith('Bearer ') ? auth.slice('Bearer '.length).trim() : ''
   const apiKey = req.headers['x-api-key'] || bearer
@@ -106,7 +106,10 @@ export default async function handler(req, res) {
 
   if (req.method === 'OPTIONS') return res.status(204).end()
   if (req.method !== 'POST') return fail(res, 405, 'method_not_allowed', 'Use POST /api/cast')
-  if (!validateAuth(req)) return fail(res, 401, 'unauthorized', 'Invalid CONK API key')
+
+  const configuredApiKeys = readConfiguredApiKeys()
+  if (!configuredApiKeys.length) return fail(res, 503, 'not_configured', 'CONK_API_KEYS is not configured')
+  if (!validateAuth(req, configuredApiKeys)) return fail(res, 401, 'unauthorized', 'Invalid CONK API key')
 
   const vesselId = process.env.CONK_API_VESSEL_ID || process.env.CONK_VESSEL_ID
   if (!vesselId) return fail(res, 503, 'not_configured', 'CONK_API_VESSEL_ID is not configured')
