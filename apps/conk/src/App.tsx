@@ -7,6 +7,7 @@ import { VesselHome } from './pages/VesselHome'
 import { Legal } from './pages/Legal'
 import { ZkLoginButton } from './components/ZkLoginButton'
 import { ConkHomeScreen } from './pages/ConkHomeScreen'
+import { AgentsLanding } from './pages/AgentsLanding'
 import { isLoggedIn, handleZkLoginCallback, startZkLogin } from './sui/zklogin'
 import { isWalletSession } from './sui/walletSession'
 
@@ -61,6 +62,12 @@ export default function App() {
   }, [])
 
   if (checking) return null
+
+  if (window.location.pathname === '/agents') {
+    return <AgentsLanding onConnect={async () => {
+      try { await startZkLogin() } catch(e) { console.error(e) }
+    }} />
+  }
 
   // Gate 1 — Must connect first
   if (!connected) {
