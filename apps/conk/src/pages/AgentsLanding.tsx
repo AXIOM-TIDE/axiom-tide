@@ -17,8 +17,8 @@ npm install
 cp .env.example .env
 npm run dev`
 
-const curlExample = `curl -X POST http://localhost:3000/cast \\
-  -H "Authorization: Bearer $AGENT_API_KEY" \\
+const curlExample = `curl -X POST https://conk.app/api/cast \\
+  -H "Authorization: Bearer $CONK_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"hook":"Hello from my CONK agent","body":"First autonomous Cast","price":0.001}'`
 
@@ -79,7 +79,7 @@ export function AgentsLanding({ onConnect }: AgentsLandingProps) {
             <pre style={codeBlock}>{starterCommands}</pre>
           </div>
           <div style={panel}>
-            <div style={eyebrow}>ZERO-SDK HTTP SHAPE</div>
+            <div style={eyebrow}>ZERO-SDK HOSTED API</div>
             <pre style={codeBlock}>{curlExample}</pre>
           </div>
         </section>
