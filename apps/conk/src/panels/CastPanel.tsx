@@ -20,7 +20,7 @@ function FuelStrip({ fuel }: { fuel: number }) {
     <div style={{display:'flex',alignItems:'center',gap:'10px',padding:'7px 10px',background:low?'var(--burn-dim)':'var(--surface)',border:`1px solid ${low?'rgba(255,58,92,0.2)':'var(--border)'}`,borderRadius:'var(--radius)',marginBottom:'12px'}}>
       <FuelBar value={fuel} max={100} width={80}/>
       <span style={{fontFamily:'var(--font-mono)',fontSize:'9px',color:low?'var(--burn)':'var(--text-off)',marginLeft:'auto'}}>
-        {low ? 'low fuel — draw from Harbor' : 'vessel fuel · $0.001 to sound · $0.01 for Flares'}
+        {low ? 'low fuel — draw from Harbor' : 'vessel fuel · $0.001 to sound · $0.05 for Flares'}
       </span>
     </div>
   )
@@ -178,7 +178,7 @@ export function CastPanel({ onClose }: { onClose: () => void }) {
         {mode === 'eyes_only' && flare && (
           <div className="summary-row" style={{borderBottom:'none'}}>
             <span>Flare to</span>
-            <span className="summary-val" style={{color:'var(--teal)'}}>{flare} <span style={{color:'var(--text-off)',fontSize:'9px'}}>· $0.01 fee</span></span>
+            <span className="summary-val" style={{color:'var(--teal)'}}>{flare} <span style={{color:'var(--text-off)',fontSize:'9px'}}>· $0.05 fee</span></span>
           </div>
         )}
       </div>
@@ -492,7 +492,7 @@ export function CastPanel({ onClose }: { onClose: () => void }) {
         <div style={{marginBottom:'14px',padding:'12px',background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)'}}>
           <div style={{marginBottom:'12px'}}>
             <div style={{fontFamily:'var(--font-mono)',fontSize:'10px',color:'var(--text-dim)'}}>
-              Recipient email <span style={{color:'var(--teal)',fontSize:'9px'}}>{isReply ? 'optional · notify by email' : 'required · $0.01 to send'}</span>
+              Recipient email <span style={{color:'var(--teal)',fontSize:'9px'}}>{isReply ? 'optional · notify by email' : 'required · $0.05 to send'}</span>
             </div>
             <div style={{fontFamily:'var(--font-mono)',fontSize:'9px',color:'var(--text-off)',marginTop:'1px'}}>
               We'll send them a CONK Flare invitation. Only they can read this cast.
@@ -507,7 +507,7 @@ export function CastPanel({ onClose }: { onClose: () => void }) {
             onChange={e => setFlare(e.target.value)}
           />
           <div style={{fontFamily:'var(--font-mono)',fontSize:'9px',color:'var(--text-off)',lineHeight:1.6}}>
-            $0.01 charged to your Harbor at publish · reader pays $0.10+ to unlock · 97% of read price to you
+            $0.05 charged at publish · reader pays $0.10+ to unlock · 97% of read price to you
           </div>
         </div>
       )}
