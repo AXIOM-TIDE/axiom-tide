@@ -7,12 +7,13 @@
 import { useState } from 'react'
 import { useStore } from '../store/store'
 import { ZkLoginButton } from '../components/ZkLoginButton'
+import { HarborFundQR } from '../components/HarborFundQR'
 import { getUsdcBalance } from '../sui/client'
 import { getAddress, getSession, isLoggedIn } from '../sui/zklogin'
 import { isWalletSession } from '../sui/walletSession'
 import { provisionOnChainIdentity } from '../sui/bridge'
 
-type Step = 'welcome' | 'what' | 'harbor' | 'vessel' | 'launching' | 'done'
+type Step = 'welcome' | 'what' | 'harbor' | 'vessel' | 'launching' | 'unfunded' | 'done'
 
 export function Onboarding() {
   const { setOnboarded, addVessel, setHarbor } = useStore()
@@ -70,26 +71,10 @@ export function Onboarding() {
             harborCapId:  provision.harborCapId ?? undefined,
           })
         } else {
-          // Unfunded — local stub with pending activation flag
-          const vesselId = `v_${Math.random().toString(36).slice(2,10)}`
-          addVessel({
-            id:          vesselId,
-            class:       'vessel',
-            tempOrPerm:  'perm',
-            createdAt:   now,
-            lastCastAt:  null,
-            expiresAt:   now + yr,
-            fuel:        0,
-            fuelDrawing: true,
-            autoBurn:    true,
-          })
-
-          setHarbor({
-            balance:      balance,
-            tier:         1,
-            lastMovement: now,
-            expiresAt:    now + yr,
-          })
+          // Unfunded — show QR so human can fund the Harbor.
+          // Agents use POST /bridge/provision and never hit this branch.
+          setStep('unfunded')
+          return
         }
       } else {
         // Wallet session (or no zkLogin) — wallet already has a real Sui address
@@ -303,6 +288,29 @@ export function Onboarding() {
             </div>
           </div>
         )}
+
+        {/* STEP — Unfunded: QR display for humans to fund Harbor */}
+        {step === 'unfunded' && (() => {
+          const address = getAddress() ?? ''
+          return (
+            <div style={{animation:'rowIn 0.3s ease both'}}>
+              <HarborFundQR address={address}/>
+              <div style={{marginTop:'16px',display:'flex',gap:'8px'}}>
+                <button className="btn btn-ghost" style={{flexShrink:0}} onClick={() => setStep('vessel')}>← back</button>
+                <button
+                  className="btn btn-primary"
+                  style={{flex:1,height:'42px'}}
+                  onClick={launch}
+                >
+                  Check again →
+                </button>
+              </div>
+              <div style={{fontFamily:'var(--font-mono)',fontSize:'9px',color:'var(--text-off)',textAlign:'center',marginTop:'10px',lineHeight:1.6}}>
+                After funding, tap “Check again” to continue.
+              </div>
+            </div>
+          )
+        })()}
 
         {/* Launching */}
         {step === 'launching' && (

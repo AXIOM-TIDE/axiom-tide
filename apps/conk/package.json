@@ -16,10 +16,12 @@
     "@mysten/sui": "^1.19.0",
     "@mysten/wallet-standard": "^0.20.1",
     "@mysten/zklogin": "^0.7.7",
+    "@types/qrcode": "^1.5.6",
     "clsx": "^2.1.1",
     "dayjs": "^1.11.13",
     "framer-motion": "^11.18.2",
     "lucide-react": "^0.483.0",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zustand": "^5.0.2"
