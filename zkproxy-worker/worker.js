@@ -21,12 +21,15 @@ const CONK_TREASURY = '0xe0117fba317d2267b8d90adca1fe79eceeec756bcf54edf04cc29ee
 const CONK_USDC_TYPE = '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC'
 const RETURN_FLARE_FEE_USDC = 50_000
 
-const GAS_FLOOR_MIST          = 500_000_000n  // 0.5 SUI
-const MAX_GAS_PER_IP_PER_HOUR = 50
-const MAX_ZKP_PER_IP_PER_HOUR = 30
-const MAX_RPC_PER_IP_PER_HOUR = 200
-const MAX_WALRUS_PER_HOUR     = 20
-const MAX_BODY_SIZE           = 64 * 1024      // 64KB
+const CONK_PACKAGE = '0x92e015ba78f91f40a33d7d023c347cfa7ac0aaa0d35dcd72a1909974e51f7274'
+
+const GAS_FLOOR_MIST               = 500_000_000n  // 0.5 SUI
+const MAX_GAS_PER_IP_PER_HOUR      = 50
+const MAX_ZKP_PER_IP_PER_HOUR      = 30
+const MAX_RPC_PER_IP_PER_HOUR      = 200
+const MAX_WALRUS_PER_HOUR          = 20
+const MAX_PROVISION_PER_IP_PER_HOUR = 5            // Harbor creation is expensive
+const MAX_BODY_SIZE                = 64 * 1024     // 64KB
 
 const ALLOWED_ORIGINS = new Set([
   'https://conk.app',
@@ -363,6 +366,104 @@ export default {
           status:  resp.status,
           headers: { ...corsHeaders(origin), 'Content-Type': 'application/json' },
         })
+      }
+
+      // ── Bridge provision (gas sponsor for harbor::open + vessel::launch) ──
+      // For non-browser agents that have a zkLogin address but can't run browser code.
+      // Body: { address: string, txBytes: string }
+      //   txBytes = transaction KIND bytes (without gas) for harbor::open + vessel::launch
+      // Returns:
+      //   { harborExists: true, provisioned: false }  — Harbor already on-chain, nothing done
+      //   { sponsoredBytes, sponsorSig, provisioned: true }  — sponsored tx for agent to sign+submit
+      if (path === '/bridge/provision' && request.method === 'POST') {
+        const limit = await checkRateLimit(
+          env.RATE_LIMITER,
+          'provision:' + ip,
+          MAX_PROVISION_PER_IP_PER_HOUR
+        )
+        if (!limit.allowed) {
+          return errResponse('Provision rate limit exceeded — try again later', 429, origin)
+        }
+
+        let data
+        try { data = JSON.parse(rawBody) } catch { return errResponse('Bad JSON', 400, origin) }
+
+        const { address, txBytes } = data
+
+        if (!address || !txBytes) {
+          return errResponse('Missing address or txBytes', 400, origin)
+        }
+
+        if (!/^0x[0-9a-fA-F]{64}$/.test(address)) {
+          return errResponse('Invalid address format', 400, origin)
+        }
+
+        // Idempotency check — does Harbor already exist for this address?
+        let harborExists = false
+        try {
+          const owned = await rpc('suix_getOwnedObjects', [
+            address,
+            {
+              filter:  { StructType: `${CONK_PACKAGE}::harbor::HarborCap` },
+              options: { showContent: false },
+            },
+            null,
+            1,
+          ])
+          harborExists = (owned?.data?.length ?? 0) > 0
+        } catch (e) {
+          console.warn('[bridge/provision] Harbor check failed:', e.message)
+          // Proceed — idempotency check best-effort
+        }
+
+        if (harborExists) {
+          return jsonResponse({ harborExists: true, provisioned: false }, 200, origin)
+        }
+
+        // Harbor doesn't exist — sponsor the provision PTB
+        const privateKey = env.GAS_PRIVATE_KEY
+        if (!privateKey) throw new Error('GAS_PRIVATE_KEY not set')
+
+        const keypair = Ed25519Keypair.fromSecretKey(privateKey)
+
+        const balanceCheck = await checkGasBalance(keypair)
+        if (!balanceCheck.ok) {
+          return errResponse('Gas sponsorship temporarily paused — network maintenance', 503, origin)
+        }
+
+        const gasAddr = balanceCheck.address
+
+        const [coinsResult, refGasPrice] = await Promise.all([
+          rpc('suix_getCoins', [gasAddr, '0x2::sui::SUI', null, 1]),
+          rpc('suix_getReferenceGasPrice', []),
+        ])
+
+        if (!coinsResult.data?.length) {
+          throw new Error('Gas wallet empty — top up SUI at ' + gasAddr)
+        }
+
+        const coin = coinsResult.data[0]
+        const tx   = Transaction.fromKind(fromB64(txBytes))
+
+        tx.setSender(address)
+        tx.setGasOwner(gasAddr)
+        tx.setGasPrice(Number(refGasPrice))
+        tx.setGasBudget(10_000_000)
+        tx.setGasPayment([{
+          objectId: coin.coinObjectId,
+          version:  coin.version,
+          digest:   coin.digest,
+        }])
+
+        const builtBytes    = await tx.build()
+        const { signature } = await keypair.signTransaction(builtBytes)
+
+        return jsonResponse({
+          sponsoredBytes: toB64(builtBytes),
+          sponsorSig:     signature,
+          harborExists:   false,
+          provisioned:    true,
+        }, 200, origin)
       }
 
       // ── Return Flare email delivery ───────────────────────────────────────

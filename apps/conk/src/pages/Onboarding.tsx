@@ -7,9 +7,10 @@
 import { useState } from 'react'
 import { useStore } from '../store/store'
 import { ZkLoginButton } from '../components/ZkLoginButton'
-import { openHarbor, launchVessel, getUsdcBalance } from '../sui/client'
-import { getAddress, isLoggedIn } from '../sui/zklogin'
+import { getUsdcBalance } from '../sui/client'
+import { getAddress, getSession, isLoggedIn } from '../sui/zklogin'
 import { isWalletSession } from '../sui/walletSession'
+import { provisionOnChainIdentity } from '../sui/bridge'
 
 type Step = 'welcome' | 'what' | 'harbor' | 'vessel' | 'launching' | 'done'
 
@@ -37,26 +38,82 @@ export function Onboarding() {
       const address = getAddress()
       const balance = address ? await getUsdcBalance(address) : 0
 
-      // Create local vessel — on-chain Harbor/Vessel created lazily when USDC arrives
-      const vesselId = `v_${Math.random().toString(36).slice(2,10)}`
-      addVessel({
-        id:          vesselId,
-        class:       'vessel',
-        tempOrPerm:  'perm',
-        createdAt:   now,
-        lastCastAt:  null,
-        expiresAt:   now + yr,
-        fuel:        0,
-        fuelDrawing: true,
-        autoBurn:    true,
-      })
+      // Attempt on-chain provisioning via zkLogin session
+      const session = getSession()
 
-      setHarbor({
-        balance:      balance,
-        tier:         1,
-        lastMovement: now,
-        expiresAt:    now + yr,
-      })
+      if (session) {
+        // zkLogin path — auto-provision Harbor + Vessel on-chain
+        const provision = await provisionOnChainIdentity(session)
+
+        if (provision.funded && provision.vesselId) {
+          // Fully provisioned — use real on-chain IDs
+          addVessel({
+            id:          provision.vesselId,
+            onChainId:   provision.vesselId,
+            vesselCapId: provision.vesselCapId ?? undefined,
+            class:       'vessel',
+            tempOrPerm:  'perm',
+            createdAt:   now,
+            lastCastAt:  null,
+            expiresAt:   now + yr,
+            fuel:        0,
+            fuelDrawing: true,
+            autoBurn:    true,
+          })
+
+          setHarbor({
+            balance:      balance,
+            tier:         1,
+            lastMovement: now,
+            expiresAt:    now + yr,
+            onChainId:    provision.harborId ?? undefined,
+            harborCapId:  provision.harborCapId ?? undefined,
+          })
+        } else {
+          // Unfunded — local stub with pending activation flag
+          const vesselId = `v_${Math.random().toString(36).slice(2,10)}`
+          addVessel({
+            id:          vesselId,
+            class:       'vessel',
+            tempOrPerm:  'perm',
+            createdAt:   now,
+            lastCastAt:  null,
+            expiresAt:   now + yr,
+            fuel:        0,
+            fuelDrawing: true,
+            autoBurn:    true,
+          })
+
+          setHarbor({
+            balance:      balance,
+            tier:         1,
+            lastMovement: now,
+            expiresAt:    now + yr,
+          })
+        }
+      } else {
+        // Wallet session (or no zkLogin) — wallet already has a real Sui address
+        // Harbor/Vessel created by wallet user via manual Harbor funding flow
+        const vesselId = `v_${Math.random().toString(36).slice(2,10)}`
+        addVessel({
+          id:          vesselId,
+          class:       'vessel',
+          tempOrPerm:  'perm',
+          createdAt:   now,
+          lastCastAt:  null,
+          expiresAt:   now + yr,
+          fuel:        0,
+          fuelDrawing: true,
+          autoBurn:    true,
+        })
+
+        setHarbor({
+          balance:      balance,
+          tier:         1,
+          lastMovement: now,
+          expiresAt:    now + yr,
+        })
+      }
 
       setOnboarded(true)
 
