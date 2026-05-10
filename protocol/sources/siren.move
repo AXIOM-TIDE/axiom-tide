@@ -52,7 +52,42 @@ module axiom_tide::siren {
         dark_at:  u64,
     }
 
+    /// Original deployed signature — DO NOT MODIFY.
+    /// Compatible upgrades require this to remain exactly as first published.
     public fun sound(
+        owner_vessel_id: ID,
+        dock_id:         ID,
+        hook:            vector<u8>,
+        clock:           &Clock,
+        ctx:             &mut TxContext,
+    ) {
+        let owner = tx_context::sender(ctx);
+        let now   = clock::timestamp_ms(clock);
+        let siren = Siren {
+            id:              object::new(ctx),
+            owner_vessel_id,
+            owner,
+            dock_id,
+            hook,
+            created_at:      now,
+            last_response:   now,
+            response_count:  0,
+        };
+        let siren_addr = object::id_to_address(&object::id(&siren));
+        let dock_addr  = object::id_to_address(&dock_id);
+        event::emit(SirenSounded {
+            siren_id:   siren_addr,
+            dock_id:    dock_addr,
+            hook:       siren.hook,
+            sounded_at: now,
+            expires_at: now + LIFESPAN_MS,
+        });
+        transfer::share_object(siren);
+    }
+
+    /// v2: sound with enforced $0.03 USDC fee routed through Abyss.
+    /// Added as a new function to preserve upgrade compatibility.
+    public fun sound_v2(
         fee_coin:        Coin<USDC>,
         abyss:           &mut Abyss,
         owner_vessel_id: ID,
