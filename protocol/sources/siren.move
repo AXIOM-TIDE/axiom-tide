@@ -85,8 +85,14 @@ module axiom_tide::siren {
         transfer::share_object(siren);
     }
 
-    /// v2: sound with enforced $0.03 USDC fee routed through Abyss.
-    /// Added as a new function to preserve upgrade compatibility.
+    /// sound_v2 — fee-enforced replacement for sound().
+    /// Identical behaviour except it asserts the fee coin meets the protocol
+    /// floor at the siren layer before delegating to the abyss, matching the
+    /// pattern established by cast::sound. Callers should migrate to this
+    /// entry point; sound() remains for backwards compatibility only.
+    ///
+    /// Error codes:
+    ///   E_INSUFFICIENT_FEE (3) — fee_coin value < SIREN_FLOOR ($0.03 USDC)
     public fun sound_v2(
         fee_coin:        Coin<USDC>,
         abyss:           &mut Abyss,
@@ -96,7 +102,14 @@ module axiom_tide::siren {
         clock:           &Clock,
         ctx:             &mut TxContext,
     ) {
+        // Siren-layer fee gate — explicit check before touching the abyss.
+        // The abyss validates independently; this makes the enforcement
+        // visible at the call site and prevents partial-coin exploits where
+        // a split produces a coin that satisfies abyss arithmetic edge cases.
+        assert!(coin::value(&fee_coin) >= SIREN_FLOOR, E_INSUFFICIENT_FEE);
+
         abyss::receive_siren(abyss, fee_coin, clock, ctx);
+
         let owner = tx_context::sender(ctx);
         let now   = clock::timestamp_ms(clock);
         let siren = Siren {
@@ -153,55 +166,6 @@ module axiom_tide::siren {
                     response_count:_ } = siren;
         object::delete(id);
         event::emit(SirenDark { siren_id: siren_addr, dark_at: now });
-    }
-
-    /// sound_v2 — fee-enforced replacement for sound().
-    /// Identical behaviour except it asserts the fee coin meets the protocol
-    /// floor at the siren layer before delegating to the abyss, matching the
-    /// pattern established by cast::sound. Callers should migrate to this
-    /// entry point; sound() remains for backwards compatibility only.
-    ///
-    /// Error codes:
-    ///   E_INSUFFICIENT_FEE (3) — fee_coin value < SIREN_FLOOR ($0.03 USDC)
-    public fun sound_v2(
-        fee_coin:        Coin<USDC>,
-        abyss:           &mut Abyss,
-        owner_vessel_id: ID,
-        dock_id:         ID,
-        hook:            vector<u8>,
-        clock:           &Clock,
-        ctx:             &mut TxContext,
-    ) {
-        // Siren-layer fee gate — explicit check before touching the abyss.
-        // The abyss validates independently; this makes the enforcement
-        // visible at the call site and prevents partial-coin exploits where
-        // a split produces a coin that satisfies abyss arithmetic edge cases.
-        assert!(coin::value(&fee_coin) >= SIREN_FLOOR, E_INSUFFICIENT_FEE);
-
-        abyss::receive_siren(abyss, fee_coin, clock, ctx);
-
-        let owner = tx_context::sender(ctx);
-        let now   = clock::timestamp_ms(clock);
-        let siren = Siren {
-            id:              object::new(ctx),
-            owner_vessel_id,
-            owner,
-            dock_id,
-            hook,
-            created_at:      now,
-            last_response:   now,
-            response_count:  0,
-        };
-        let siren_addr = object::id_to_address(&object::id(&siren));
-        let dock_addr  = object::id_to_address(&dock_id);
-        event::emit(SirenSounded {
-            siren_id:   siren_addr,
-            dock_id:    dock_addr,
-            hook:       siren.hook,
-            sounded_at: now,
-            expires_at: now + LIFESPAN_MS,
-        });
-        transfer::share_object(siren);
     }
 
     public fun is_alive(siren: &Siren, clock: &Clock): bool {
