@@ -1,7 +1,7 @@
 /**
  * CONK Sui Integration Layer
- * Deployed to Sui Mainnet — April 24, 2026 (v6); upgraded May 8, 2026 (v7 — fee enforcement)
- * Package: 0x92e015ba78f91f40a33d7d023c347cfa7ac0aaa0d35dcd72a1909974e51f7274
+ * Deployed to Sui Mainnet — April 24, 2026 (v6); upgraded May 8, 2026 (v7 — fee enforcement); upgraded May 10, 2026 (v7 — sound_v2)
+ * Package: 0xb4220c9faa4e6be4b557d3c81772f96ef90d5688009887a1c73ef9b7eaa6917c
  * Treasury: 0xe0117fba317d2267b8d90adca1fe79eceeec756bcf54edf04cc29ee5306ab32e
  * Axiom Tide LLC · Casper, Wyoming
  */
@@ -20,8 +20,8 @@ export const ADDRESSES = {
 }
 
 export const PACKAGES = {
-  CONK:  '0x92e015ba78f91f40a33d7d023c347cfa7ac0aaa0d35dcd72a1909974e51f7274', // v2 — fee enforcement (2026-05-08)
-  RELAY: '0x92e015ba78f91f40a33d7d023c347cfa7ac0aaa0d35dcd72a1909974e51f7274',
+  CONK:  '0xb4220c9faa4e6be4b557d3c81772f96ef90d5688009887a1c73ef9b7eaa6917c', // v7 — sound_v2 (2026-05-10)
+  RELAY: '0xb4220c9faa4e6be4b557d3c81772f96ef90d5688009887a1c73ef9b7eaa6917c',
 }
 
 export const USDC_TYPE = '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC'
