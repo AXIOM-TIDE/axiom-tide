@@ -1,7 +1,7 @@
 [package]
 name = "axiom_tide"
 edition = "2024.beta"
-published-at = "0xb4220c9faa4e6be4b557d3c81772f96ef90d5688009887a1c73ef9b7eaa6917c"
+published-at = "0x5b2581953997faa81c3294d1ed5619ad9f1acf2883197727a54c6a0cbdb067f3"
 
 [dependencies]
 Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/mainnet", override = true }

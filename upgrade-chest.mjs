@@ -29,7 +29,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const UPGRADE_CAP     = '0x45ac8ab33db324f1f6a5cb7fdf726b132846a3ee5fd35c8ec3d2795d747784b2';
-const CURRENT_PACKAGE = '0xb4220c9faa4e6be4b557d3c81772f96ef90d5688009887a1c73ef9b7eaa6917c'; // v7
+const CURRENT_PACKAGE = '0x5b2581953997faa81c3294d1ed5619ad9f1acf2883197727a54c6a0cbdb067f3'; // v8
 const PROTOCOL_DIR    = join(__dirname, 'protocol');
 const DRY_RUN         = process.argv.includes('--dry-run');
 
