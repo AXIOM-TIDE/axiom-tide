@@ -23,6 +23,13 @@ module axiom_tide::abyss {
     const FEE_LH_VISIT: u64 = 1_000;
     const FEE_LH_KILL:  u64 = 1_000_000_000_000;
 
+    // Chest fees
+    const FEE_CHEST_OPEN_NANO:     u64 = 50_000;   // $0.05
+    const FEE_CHEST_OPEN_STANDARD: u64 = 100_000;  // $0.10
+    const FEE_CHEST_OPEN_LARGE:    u64 = 250_000;  // $0.25
+    const FEE_CHEST_BURN:          u64 = 20_000;   // $0.02
+    const FEE_CHEST_EXTEND:        u64 = 20_000;   // $0.02
+
     public struct Abyss has key {
         id:             UID,
         total_received: u64,
@@ -93,6 +100,26 @@ module axiom_tide::abyss {
         deposit(a, p, FEE_LH_KILL,  b"lighthouse:kill",  c, ctx);
     }
 
+    // ─── Chest receivers ──────────────────────────────────────────────────────
+    public fun receive_chest_open(
+        a: &mut Abyss, p: Coin<USDC>, tier: u8, c: &Clock, ctx: &TxContext
+    ) {
+        let min_fee = if (tier == 0)      { FEE_CHEST_OPEN_NANO     }
+                      else if (tier == 1) { FEE_CHEST_OPEN_STANDARD }
+                      else                { FEE_CHEST_OPEN_LARGE     };
+        deposit(a, p, min_fee, b"chest:open", c, ctx);
+    }
+    public fun receive_chest_access(a: &mut Abyss, p: Coin<USDC>, c: &Clock, ctx: &TxContext) {
+        // Protocol cut is pre-split in chest.move; minimum here is 0
+        deposit(a, p, 0, b"chest:access", c, ctx);
+    }
+    public fun receive_chest_burn(a: &mut Abyss, p: Coin<USDC>, c: &Clock, ctx: &TxContext) {
+        deposit(a, p, FEE_CHEST_BURN, b"chest:burn", c, ctx);
+    }
+    public fun receive_chest_extend(a: &mut Abyss, p: Coin<USDC>, c: &Clock, ctx: &TxContext) {
+        deposit(a, p, FEE_CHEST_EXTEND, b"chest:extend", c, ctx);
+    }
+
     public fun total_received(a: &Abyss): u64 { a.total_received }
     public fun total_actions(a: &Abyss):  u64 { a.total_actions }
     public fun fee_harbor():   u64 { FEE_HARBOR }
@@ -104,4 +131,9 @@ module axiom_tide::abyss {
     public fun fee_dock():     u64 { FEE_DOCK }
     public fun fee_lh_visit(): u64 { FEE_LH_VISIT }
     public fun fee_lh_kill():  u64 { FEE_LH_KILL }
+    public fun fee_chest_open_nano():     u64 { FEE_CHEST_OPEN_NANO     }
+    public fun fee_chest_open_standard(): u64 { FEE_CHEST_OPEN_STANDARD }
+    public fun fee_chest_open_large():    u64 { FEE_CHEST_OPEN_LARGE    }
+    public fun fee_chest_burn():          u64 { FEE_CHEST_BURN          }
+    public fun fee_chest_extend():        u64 { FEE_CHEST_EXTEND        }
 }
