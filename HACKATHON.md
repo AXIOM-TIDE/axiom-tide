@@ -55,7 +55,7 @@ The blob stays on Walrus. The SEAL policy controls who can decrypt. CONK control
 
 | Item | Address |
 |------|---------|
-| CONK Package (v8) | `0x5b2581953997faa81c3294d1ed5619ad9f1acf2883197727a54c6a0cbdb067f3` |
+| CONK Package (v9) | `0x7bc8f81b03cede714045a9f24e5f776fc449000c9414e33908ebe177d3b5ac2b` |
 | Abyss (protocol treasury) | `0x392d5f46b5f02fb34cc0cb06c27e89b6e4dacc4cafd41e3b9ac1bc9f02dd1598` |
 | Network | Sui Mainnet |
 
