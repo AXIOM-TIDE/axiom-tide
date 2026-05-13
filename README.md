@@ -20,7 +20,7 @@ These are not policies. They are structural properties enforced by code on the S
 
 ---
 
-## Seven Primitives
+## Eight Primitives
 
 ```
 1  HARBOR       USDC balance. The fuel. Never sees a cast.
@@ -30,6 +30,7 @@ These are not policies. They are structural properties enforced by code on the S
 5  DOCK         Sealed channel. Private casts only.
 6  SIREN        Open broadcast. Pulls vessels to a Dock.
 7  LIGHTHOUSE   Permanent record. Earned by the tide.
+8  CHEST        Encrypted file vault. Walrus + SEAL + USDC.
 ```
 
 ---
@@ -44,6 +45,10 @@ These are not policies. They are structural properties enforced by code on the S
 | Siren | $0.03 |
 | Dock open | $0.50 |
 | Lighthouse visit | $0.001 |
+| Chest open (Nano) | $0.05 |
+| Chest open (Standard) | $0.10 |
+| Chest open (Large) | $0.25 |
+| Chest access | creator-set (min $0.01) |
 
 All fees route to the CONK treasury. No refunds. No recovery.
 
