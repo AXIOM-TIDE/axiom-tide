@@ -1,12 +1,42 @@
+# Dependencies
 node_modules/
+.pnp
+.pnp.js
+
+# Build output
 dist/
 build/
+out/
+
+# Test artifacts
+test-results/
+playwright-report/
+*.last-run.json
+
+# Environment
 .env
 .env.local
-*.env
+.env.*.local
+
+# Vercel
+.vercel/
+!apps/conk/.vercel/project.json
+!apps/conk/.vercel/README.txt
+
+# Wrangler cache
+.wrangler/cache/
+
+# OS
 .DS_Store
-.vite/
-*.log
-.sui/
-.wrangler/
-zkproxy-worker/.wrangler/
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# One-time upgrade scripts (keep in history, ignore future additions)
+upgrade-*.mjs
+
+# Dev tools
+gas-monitor*.html
