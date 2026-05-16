@@ -24,7 +24,7 @@
 | App | https://www.conk.app |
 | npm | https://npmjs.com/package/@axiomtide/conk-sdk |
 | GitHub | https://github.com/AXIOM-TIDE/CONK |
-| Demo Video | *(YouTube URL — upload before June 6)* |
+| Demo Video | https://youtu.be/BFffe8pKJ9Q |
 
 ---
 
@@ -97,6 +97,6 @@ Reader → chest-access → Pay USDC → ChestAccessed event (blobId + sealId)
 - [x] Demo video recorded (2:55, 1080p)
 - [x] GitHub repo cleaned and documented
 - [x] PROTOCOL.md with full fee table
-- [ ] YouTube demo URL (upload before June 6)
+- [x] YouTube demo URL — https://youtu.be/BFffe8pKJ9Q ✅
 - [ ] Registration on hackathon portal (opens May 23)
 - [ ] Final submission
