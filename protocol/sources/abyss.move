@@ -30,6 +30,9 @@ module axiom_tide::abyss {
     const FEE_CHEST_BURN:          u64 = 20_000;   // $0.02
     const FEE_CHEST_EXTEND:        u64 = 20_000;   // $0.02
 
+    // Stream fees
+    const FEE_STREAM_CREATE: u64 = 50_000;  // $0.05
+
     public struct Abyss has key {
         id:             UID,
         total_received: u64,
@@ -120,6 +123,15 @@ module axiom_tide::abyss {
         deposit(a, p, FEE_CHEST_EXTEND, b"chest:extend", c, ctx);
     }
 
+    // ─── Stream receivers ─────────────────────────────────────────────────────
+    public fun receive_stream_create(a: &mut Abyss, p: Coin<USDC>, c: &Clock, ctx: &TxContext) {
+        deposit(a, p, FEE_STREAM_CREATE, b"stream:create", c, ctx);
+    }
+    public fun receive_stream_access(a: &mut Abyss, p: Coin<USDC>, c: &Clock, ctx: &TxContext) {
+        // Protocol cut is pre-split in stream.move; minimum here is 0
+        deposit(a, p, 0, b"stream:access", c, ctx);
+    }
+
     public fun total_received(a: &Abyss): u64 { a.total_received }
     public fun total_actions(a: &Abyss):  u64 { a.total_actions }
     public fun fee_harbor():   u64 { FEE_HARBOR }
@@ -136,4 +148,5 @@ module axiom_tide::abyss {
     public fun fee_chest_open_large():    u64 { FEE_CHEST_OPEN_LARGE    }
     public fun fee_chest_burn():          u64 { FEE_CHEST_BURN          }
     public fun fee_chest_extend():        u64 { FEE_CHEST_EXTEND        }
+    public fun fee_stream_create():        u64 { FEE_STREAM_CREATE       }
 }

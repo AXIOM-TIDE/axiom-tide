@@ -218,6 +218,7 @@ export function Onboarding() {
             <div style={{display:'flex',flexDirection:'column',gap:'8px',marginBottom:'20px'}}>
               {[
 
+                ['Open fee', '$0.15 USDC (one-time, on-chain)'],
                 ['What Harbor sees', 'Balance only. Nothing else. Ever.'],
                 ['What Harbor never sees', 'Casts. Vessels. Messages. Agents.'],
                 ['Funding', 'Top up anytime with USDC on Sui'],
@@ -268,7 +269,8 @@ export function Onboarding() {
 
             <div style={{display:'flex',flexDirection:'column',gap:'6px',marginBottom:'16px'}}>
               {[
-                ['Vessel cost', '$0.01'],
+                ['Harbor (one-time)', '$0.15 USDC'],
+                ['Vessel cost', '$0.01 USDC'],
                 ['Lifespan', '1 year · resets on activity'],
                 ['Max vessels', '30 per Harbor'],
                 ['Privacy', 'Identical to all other vessels on-chain'],

@@ -47,35 +47,36 @@ async function findExistingIdentity(address: string): Promise<ExistingIdentity> 
   try {
     const client = await getSuiClient()
 
-    // Look for HarborCap owned by this address
-    const harborCapResult = await (client as any).getOwnedObjects({
+    // Fetch ALL owned objects and match by type suffix — this is package-version
+    // agnostic. Filtering by exact StructType breaks when the user's Harbor/Vessel
+    // was created under a different package version (v1–v8 vs current v9+).
+    const allObjects = await (client as any).getOwnedObjects({
       owner:   address,
-      filter:  { StructType: `${PACKAGE}::harbor::HarborCap` },
-      options: { showContent: true },
+      options: { showType: true, showContent: true },
+      limit:   50,
     })
+    const allData: any[] = allObjects?.data ?? []
 
-    const harborCapObj = harborCapResult?.data?.[0]?.data ?? null
-    if (!harborCapObj) return none
+    // HarborCap — type ends in ::harbor::HarborCap regardless of package version
+    const harborCapRaw = allData.find(
+      (o: any) => (o?.data?.type ?? '').includes('::harbor::HarborCap')
+    )?.data ?? null
+    if (!harborCapRaw) return none
 
-    const harborCapId = harborCapObj.objectId as string | null ?? null
-    // HarborCap fields hold a reference to the Harbor (field name: harbor_id)
+    const harborCapId = harborCapRaw.objectId as string | null ?? null
     const harborId =
-      (harborCapObj.content as any)?.fields?.harbor_id ??
-      (harborCapObj.content as any)?.fields?.for ??
+      (harborCapRaw.content as any)?.fields?.harbor_id ??
+      (harborCapRaw.content as any)?.fields?.for ??
       null
 
-    // Look for VesselCap owned by this address
-    const vesselCapResult = await (client as any).getOwnedObjects({
-      owner:   address,
-      filter:  { StructType: `${PACKAGE}::vessel::VesselCap` },
-      options: { showContent: true },
-    })
-
-    const vesselCapObj = vesselCapResult?.data?.[0]?.data ?? null
-    const vesselCapId  = vesselCapObj?.objectId ?? null
-    const vesselId     =
-      (vesselCapObj?.content as any)?.fields?.vessel_id ??
-      (vesselCapObj?.content as any)?.fields?.for ??
+    // VesselCap — type ends in ::vessel::VesselCap
+    const vesselCapRaw = allData.find(
+      (o: any) => (o?.data?.type ?? '').includes('::vessel::VesselCap')
+    )?.data ?? null
+    const vesselCapId = vesselCapRaw?.objectId ?? null
+    const vesselId =
+      (vesselCapRaw?.content as any)?.fields?.vessel_id ??
+      (vesselCapRaw?.content as any)?.fields?.for ??
       null
 
     return { harborId, harborCapId, vesselId, vesselCapId }
