@@ -25,7 +25,11 @@ module axiom_tide::cast {
     const E_INSUFFICIENT_UPGRADE_FEE: u64 = 7;
     const E_INSUFFICIENT_FLARE_FEE:   u64 = 8;  // v6: publish fee below Flare minimum
 
-    const MIN_PAID_PRICE:    u64 = 100_000;
+    // v10: lowered from 100_000 ($0.10) to 1_000 ($0.001) to enable the
+    // micropayment intelligence marketplace. Daemons publishing daily Casts
+    // at $0.001/read can now actually monetize. Lighthouse math + Tide
+    // thresholds unchanged.
+    const MIN_PAID_PRICE:    u64 = 1_000;
 
     const DOCK_SLOT_PRICE:        u64 = 10_000;
     const MIN_FLARE_PUBLISH_FEE:  u64 = 50_000;  // v6: $0.05 minimum to send a Flare (EYES_ONLY)
