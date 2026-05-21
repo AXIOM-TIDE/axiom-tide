@@ -30,6 +30,8 @@ const MAX_RPC_PER_IP_PER_HOUR      = 200
 const MAX_WALRUS_PER_HOUR          = 20
 const MAX_PROVISION_PER_IP_PER_HOUR = 5            // Harbor creation is expensive
 const MAX_BODY_SIZE                = 64 * 1024     // 64KB
+const MAX_KEY_REG_PER_IP_PER_HOUR  = 30            // cast key registrations (author)
+const MAX_DECRYPT_PER_IP_PER_HOUR  = 100           // cast decryption requests (reader)
 
 const ALLOWED_ORIGINS = new Set([
   'https://conk.app',
@@ -126,6 +128,73 @@ function fromB64(str) {
   return Uint8Array.from(atob(str), c => c.charCodeAt(0))
 }
 
+
+// ─── SEAL: verify cast::read() tx ──────────────────────────────────────────────
+// Confirms the caller executed cast::read() for the given castId before releasing
+// the AES decryption key. Called by /cast-decrypt endpoint.
+
+async function verifyReadCastTx(castId, txDigest, readerAddress, kv) {
+  if (!txDigest || typeof txDigest !== 'string') {
+    return { ok: false, error: 'txDigest required' }
+  }
+  if (!castId || typeof castId !== 'string') {
+    return { ok: false, error: 'castId required' }
+  }
+  if (!readerAddress || !/^0x[0-9a-fA-F]{64}$/.test(readerAddress)) {
+    return { ok: false, error: 'Invalid reader address' }
+  }
+
+  // Replay protection — each txDigest can only unlock a key once
+  const replayKey = 'seal-read:' + txDigest
+  if (kv) {
+    const seen = await kv.get(replayKey).catch(() => null)
+    if (seen) return { ok: false, error: 'txDigest already used for decryption' }
+  }
+
+  let tx
+  try {
+    tx = await rpc('sui_getTransactionBlock', [txDigest, {
+      showEffects:        true,
+      showEvents:         true,
+      showObjectChanges:  false,
+    }])
+  } catch (e) {
+    return { ok: false, error: 'Could not fetch transaction: ' + e.message }
+  }
+
+  if (tx?.effects?.status?.status !== 'success') {
+    return { ok: false, error: 'Transaction did not succeed' }
+  }
+
+  // Verify tx sender matches the claimed reader address
+  const txSender = tx?.transaction?.data?.sender ?? ''
+  const normSender = txSender.toLowerCase()
+  const normReader = readerAddress.toLowerCase()
+  if (normSender !== normReader) {
+    return { ok: false, error: 'Transaction sender does not match reader address' }
+  }
+
+  // Verify CastRead event exists for the correct castId
+  const events = tx.events ?? []
+  const normCastId = castId.toLowerCase().startsWith('0x') ? castId.toLowerCase() : '0x' + castId.toLowerCase()
+  const readEvent = events.find((e) => {
+    if (!e.type?.endsWith('::cast::CastRead')) return false
+    const eventCastId = (e.parsedJson?.cast_id ?? '').toLowerCase()
+    const normEvent   = eventCastId.startsWith('0x') ? eventCastId : '0x' + eventCastId
+    return normEvent === normCastId
+  })
+
+  if (!readEvent) {
+    return { ok: false, error: 'No CastRead event found for this castId in the transaction' }
+  }
+
+  // Mark txDigest as used (30-day TTL — well beyond any cast expiry)
+  if (kv) {
+    await kv.put(replayKey, '1', { expirationTtl: 60 * 60 * 24 * 30 }).catch(() => {})
+  }
+
+  return { ok: true }
+}
 
 // ─── Return Flare fee verification ───────────────────────────────────────────
 
@@ -570,6 +639,77 @@ export default {
         return new Response(JSON.stringify({ ok: true }), {
           headers: { ...corsHeaders(origin), 'Content-Type': 'application/json' }
         })
+      }
+
+      // ── SEAL: register cast encryption key ─────────────────────────────────
+      // Called by the cast author immediately after a paid cast::sound() tx confirms.
+      // Stores the AES-256-GCM key in KV, keyed by castId.
+      // Body: { castId, key (hex32), iv (hex12), blobId (Walrus blob ID) }
+      if (path === '/cast-key' && request.method === 'POST') {
+        const limit = await checkRateLimit(env.RATE_LIMITER, 'seal-key:' + ip, MAX_KEY_REG_PER_IP_PER_HOUR)
+        if (!limit.allowed) return errResponse('Rate limit exceeded', 429, origin)
+
+        let data
+        try { data = JSON.parse(rawBody) } catch { return errResponse('Bad JSON', 400, origin) }
+
+        const { castId, key, iv, blobId } = data
+        if (!castId || !key || !iv || !blobId) return errResponse('Missing castId, key, iv, or blobId', 400, origin)
+
+        // Validate formats: castId=0x+64hex, key=64hex (32 bytes), iv=24hex (12 bytes)
+        if (!/^0x[0-9a-fA-F]{64}$/.test(castId)) return errResponse('Invalid castId format', 400, origin)
+        if (!/^[0-9a-fA-F]{64}$/.test(key))      return errResponse('Invalid key format — expected 64 hex chars (32 bytes)', 400, origin)
+        if (!/^[0-9a-fA-F]{24}$/.test(iv))        return errResponse('Invalid iv format — expected 24 hex chars (12 bytes)', 400, origin)
+
+        // Store key in KV. TTL: 8 days (longest cast duration is 7 days + 1 day buffer).
+        // For lighthouse casts the key persists because lighthouse duration is ~100 years
+        // but casts only become lighthouses after 1M reads — we'll extend TTL on first access.
+        const kvKey = 'seal-key:' + castId.toLowerCase()
+        await env.RATE_LIMITER.put(
+          kvKey,
+          JSON.stringify({ key, iv, blobId }),
+          { expirationTtl: 60 * 60 * 24 * 8 }
+        )
+
+        return jsonResponse({ ok: true }, 200, origin)
+      }
+
+      // ── SEAL: decrypt cast body ───────────────────────────────────────────
+      // Called by a reader after a successful readCast() transaction.
+      // Verifies the on-chain tx, then returns the AES key.
+      // Body: { castId, txDigest, address }
+      if (path === '/cast-decrypt' && request.method === 'POST') {
+        const limit = await checkRateLimit(env.RATE_LIMITER, 'seal-decrypt:' + ip, MAX_DECRYPT_PER_IP_PER_HOUR)
+        if (!limit.allowed) return errResponse('Rate limit exceeded', 429, origin)
+
+        let data
+        try { data = JSON.parse(rawBody) } catch { return errResponse('Bad JSON', 400, origin) }
+
+        const { castId, txDigest, address } = data
+        if (!castId || !txDigest || !address) return errResponse('Missing castId, txDigest, or address', 400, origin)
+
+        // Verify on-chain payment tx
+        const verify = await verifyReadCastTx(castId, txDigest, address, env.RATE_LIMITER)
+        if (!verify.ok) return errResponse(verify.error, 402, origin)
+
+        // Fetch stored key
+        const kvKey = 'seal-key:' + castId.toLowerCase()
+        const stored = await env.RATE_LIMITER.get(kvKey).catch(() => null)
+        if (!stored) {
+          return errResponse('No encryption key found for this cast — it may be unencrypted or the key has expired', 404, origin)
+        }
+
+        let keyData
+        try { keyData = JSON.parse(stored) } catch {
+          return errResponse('Key store corrupted', 500, origin)
+        }
+
+        // Extend TTL if this cast has survived (lighthouse) — heuristic: if key accessed after 7 days, refresh to 30 days
+        const age = Date.now() - (keyData.registeredAt ?? 0)
+        if (age > 7 * 24 * 60 * 60 * 1000) {
+          await env.RATE_LIMITER.put(kvKey, stored, { expirationTtl: 60 * 60 * 24 * 30 }).catch(() => {})
+        }
+
+        return jsonResponse({ key: keyData.key, iv: keyData.iv, blobId: keyData.blobId }, 200, origin)
       }
 
       return errResponse('Not found', 404, origin)

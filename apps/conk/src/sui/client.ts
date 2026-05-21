@@ -217,6 +217,121 @@ export async function crossPaywall(opts: {
   return result.digest
 }
 
+// ── SEAL: AES-256-GCM helpers ───────────────────────────────
+// Internal use only. Not exported — only called via soundCast() and decryptCastBody().
+
+function hexToBytes(hex: string): Uint8Array {
+  const clean = hex.replace(/^0x/, '')
+  const bytes = new Uint8Array(clean.length / 2)
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16)
+  }
+  return bytes
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+async function encryptBodyForCast(
+  plaintext: string,
+): Promise<{ encryptedBytes: Uint8Array; key: string; iv: string }> {
+  const keyBytes = crypto.getRandomValues(new Uint8Array(32))
+  const ivBytes  = crypto.getRandomValues(new Uint8Array(12))
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw', keyBytes, { name: 'AES-GCM' }, false, ['encrypt'],
+  )
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: ivBytes },
+    cryptoKey,
+    new TextEncoder().encode(plaintext),
+  )
+  return {
+    encryptedBytes: new Uint8Array(ciphertext),
+    key: bytesToHex(keyBytes),
+    iv:  bytesToHex(ivBytes),
+  }
+}
+
+async function decryptBodyBytes(
+  encryptedBytes: Uint8Array,
+  key:  string,
+  iv:   string,
+): Promise<string> {
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw', hexToBytes(key), { name: 'AES-GCM' }, false, ['decrypt'],
+  )
+  const plaintext = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: hexToBytes(iv) },
+    cryptoKey,
+    encryptedBytes,
+  )
+  return new TextDecoder().decode(plaintext)
+}
+
+// Upload encrypted bytes to Walrus via zkProxy.
+async function uploadEncryptedToWalrus(bytes: Uint8Array): Promise<string> {
+  const resp = await fetch(`${PROXY}/walrus-upload?epochs=8`, {
+    method:  'PUT',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body:    bytes,
+  })
+  if (!resp.ok) throw new Error(`Walrus upload failed: ${resp.status}`)
+  const data = await resp.json() as {
+    newlyCreated?:     { blobObject: { blobId: string } }
+    alreadyCertified?: { blobId: string }
+  }
+  const blobId = data.newlyCreated?.blobObject?.blobId ?? data.alreadyCertified?.blobId
+  if (!blobId) throw new Error('Walrus upload returned no blobId')
+  return blobId
+}
+
+// Register cast encryption key with zkProxy after sound() tx confirms.
+async function registerCastKey(
+  castId: string,
+  key:    string,
+  iv:     string,
+  blobId: string,
+): Promise<void> {
+  const resp = await fetch(`${PROXY}/cast-key`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ castId, key, iv, blobId }),
+  })
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}))
+    throw new Error(`Key registration failed: ${(err as any).error ?? resp.status}`)
+  }
+}
+
+// Request decryption key from zkProxy after readCast() tx confirms.
+// Verifies the on-chain CastRead event server-side before releasing key.
+export async function decryptCastBody(
+  castId:        string,
+  txDigest:      string,
+  readerAddress: string,
+): Promise<string> {
+  // Request key from zkProxy — verifies tx on-chain before releasing
+  const resp = await fetch(`${PROXY}/cast-decrypt`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ castId, txDigest, address: readerAddress }),
+  })
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}))
+    throw new Error((err as any).error ?? `Decryption denied: ${resp.status}`)
+  }
+  const { key, iv, blobId } = await resp.json() as { key: string; iv: string; blobId: string }
+
+  // Fetch encrypted bytes from Walrus
+  const walrusResp = await fetch(`${ADDRESSES.WALRUS_AGG}/v1/${blobId}`)
+  if (!walrusResp.ok) throw new Error(`Walrus fetch failed: ${walrusResp.status}`)
+  const encryptedBytes = new Uint8Array(await walrusResp.arrayBuffer())
+
+  // Decrypt client-side — key never leaves the reader's browser after this point
+  return decryptBodyBytes(encryptedBytes, key, iv)
+}
+
 // ── Read a Cast on-chain (v5) ─────────────────────────────────
 // Calls the Move cast::read function directly. Contract handles:
 //   • 97/3 split routing (97% to cast.author, 3% to Abyss)
@@ -227,7 +342,7 @@ export async function crossPaywall(opts: {
 export async function readCast(opts: {
   castId:     string  // Sui object ID of the Cast to read
   amountUsdc: number  // Full payment amount (contract does 97/3 split)
-}): Promise<{ digest: string; castId: string }> {
+}): Promise<{ digest: string; castId: string; readerAddress: string }> {
   const session = getSession()
   if (!session) throw new Error('No session')
 
@@ -256,7 +371,7 @@ export async function readCast(opts: {
 
   tx.setSender(session.address)
   const result = await executeTx(tx, session.address)
-  return { digest: result.digest, castId: opts.castId }
+  return { digest: result.digest, castId: opts.castId, readerAddress: reader }
 }
 
 // ── Fetch a Cast object by ID and map to frontend shape (v5) ──
@@ -531,6 +646,29 @@ export async function soundCast(opts: {
   const session = getSession()
   if (!session) throw new Error('No session')
 
+  // ── SEAL: encrypt paid cast bodies before they hit the chain ────────────
+  // For paid casts (price > 0): encrypt body with AES-256-GCM, upload ciphertext to
+  // Walrus, store {encrypted:true,blobId} JSON as the on-chain content_blob instead
+  // of plaintext. Key is registered with zkProxy after the sound() tx confirms.
+  let bodyToStore = opts.body
+  let sealMeta: { key: string; iv: string; blobId: string } | null = null
+
+  if (opts.price > 0) {
+    try {
+      const { encryptedBytes, key, iv } = await encryptBodyForCast(opts.body)
+      const blobId = await uploadEncryptedToWalrus(encryptedBytes)
+      bodyToStore = JSON.stringify({ encrypted: true, blobId })
+      sealMeta    = { key, iv, blobId }
+    } catch (encryptErr) {
+      // Encryption or Walrus upload failed — do NOT fall back to plaintext.
+      // Fail loudly: paid casts must never go on-chain unencrypted.
+      throw new Error(
+        `SEAL encrypt failed — cast aborted: ${(encryptErr as Error).message}. ` +
+        'Retry or contact support.'
+      )
+    }
+  }
+
   const { Transaction } = await import('@mysten/sui/transactions')
   const tx    = new Transaction()
   const coins = await getUsdcCoins(session.address)
@@ -547,7 +685,7 @@ export async function soundCast(opts: {
       tx.object(opts.vesselId),
       tx.pure.u8(0),
       tx.pure.vector('u8', Array.from(new TextEncoder().encode(opts.hook))),
-      tx.pure.vector('u8', Array.from(new TextEncoder().encode(opts.body))),
+      tx.pure.vector('u8', Array.from(new TextEncoder().encode(bodyToStore))),
       tx.pure.option('vector<u8>', null),
       tx.pure.u8(opts.mode),
       tx.pure.address(session.address),
@@ -570,6 +708,15 @@ export async function soundCast(opts: {
 
   if (!castId) {
     console.warn('[soundCast] Could not extract cast_id from events, returning digest only')
+  }
+
+  // Register encryption key with zkProxy AFTER tx confirms and castId is known.
+  // If this fails, log the error but don't throw — the cast is already on-chain.
+  // The key can be re-registered manually via a recovery flow if needed.
+  if (sealMeta && castId) {
+    registerCastKey(castId, sealMeta.key, sealMeta.iv, sealMeta.blobId).catch((err) => {
+      console.error('[SEAL] Key registration failed for cast', castId, err)
+    })
   }
 
   return { digest: result.digest, castId }

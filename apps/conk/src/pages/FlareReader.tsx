@@ -12,7 +12,7 @@
  *   8. User taps Close → clears pending flare, returns to Drift
  */
 import { useEffect, useState } from 'react'
-import { fetchCastById, readCast, fetchCastBodyRaw, type OnChainCastView } from '../sui/client'
+import { fetchCastById, readCast, fetchCastBodyRaw, decryptCastBody, type OnChainCastView } from '../sui/client'
 
 type ReaderState = 'loading' | 'invitation' | 'paying' | 'revealed' | 'error'
 
@@ -70,11 +70,24 @@ export function FlareReader({ castId, onClose }: Props) {
       // For free casts, contract still expects a payment coin — send $0.01
       // For paid casts, send the full fee_paid amount
       const payAmount = cast.feePaid > 0 ? cast.feePaid : 10000  // 10000 microUSDC = $0.01
-      // Fetch raw content BEFORE readCast() — EYES_ONLY Docks burn content_blob in the same
-      // on-chain tx as the read. fetchCastBodyRaw() bypasses the blank in fetchCastById().
-      const preReadBody = await fetchCastBodyRaw(cast.id)
-      await readCast({ castId: cast.id, amountUsdc: payAmount })
-      // Use pre-read body since contract clears content_blob when Dock fills
+      // SEAL flow: readCast() first (payment + on-chain state), then decrypt.
+      // For EYES_ONLY, the Dock burns content_blob on-chain in the same tx.
+      // SEAL stores ciphertext on Walrus permanently — decryption works even after Dock fills.
+      // Falls back to pre-read raw fetch for pre-SEAL casts.
+      let preReadBody = ''
+      const isSealEncrypted = (cast as any).body === '' && cast.feePaid > 0
+      if (!isSealEncrypted) {
+        // Pre-SEAL cast: capture plaintext before the burn tx
+        preReadBody = await fetchCastBodyRaw(cast.id)
+      }
+      const { digest, readerAddress } = await readCast({ castId: cast.id, amountUsdc: payAmount })
+      if (isSealEncrypted) {
+        try {
+          preReadBody = await decryptCastBody(cast.id, digest, readerAddress)
+        } catch {
+          preReadBody = '[Decryption failed — contact support]'
+        }
+      }
       setBody(preReadBody)
 
       // Save received Flare for Dock inbox

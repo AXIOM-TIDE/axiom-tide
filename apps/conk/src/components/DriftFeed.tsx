@@ -1,4 +1,4 @@
-import { fetchDriftCasts, fetchCastBodyRaw, readCast } from '../sui/client'
+import { fetchDriftCasts, fetchCastBodyRaw, readCast, decryptCastBody } from '../sui/client'
 import { useState, useEffect, useRef } from 'react'
 import { useStore, type Cast, type CastMode } from '../store/store'
 import { useSoundCast } from '../hooks/use402'
@@ -245,11 +245,17 @@ function CastRow({ cast, index }: { cast: Cast; index: number; key?: string }) {
     setIsPaying(true)
     try {
       const payAmount = (cast as any).feePaid ?? cast.price ?? 1000
-      // Capture raw body BEFORE readCast() — required for BURN/EYES_ONLY where contract
-      // clears content_blob in the same tx as the read. For OPEN paid casts the content
-      // persists but we still capture here to avoid a second RPC round-trip.
-      const rawBody = await fetchCastBodyRaw(cast.id)
-      await readCast({ castId: cast.id, amountUsdc: payAmount })
+      // SEAL flow: call readCast() first (on-chain payment + state change),
+      // then request the decryption key from zkProxy which verifies the tx.
+      // Falls back to fetchCastBodyRaw() for pre-SEAL casts without a registered key.
+      const { digest, readerAddress } = await readCast({ castId: cast.id, amountUsdc: payAmount })
+      let rawBody: string
+      try {
+        rawBody = await decryptCastBody(cast.id, digest, readerAddress)
+      } catch {
+        // No key registered (pre-SEAL cast or free cast): fetch plaintext from chain
+        rawBody = await fetchCastBodyRaw(cast.id)
+      }
       setPendingBody(rawBody)
       if (vesselFuel >= 10) debitVessel(10); else debitHarbor(10)
       if (isEyes) { setStep('eyes_map'); return }
