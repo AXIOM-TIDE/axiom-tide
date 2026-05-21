@@ -723,6 +723,30 @@ export async function soundCast(opts: {
 }
 
 // ── Pay Return Flare fee on-chain ─────────────────────────────
+// ── Wreck an expired cast (callable by anyone, gas sponsored) ─────────────
+// Zeroes content_blob on-chain and marks STATE_BURNED.
+// Used by the drift-keeper daemon. Front-end can also call it after
+// detecting a cast is past its expiresAt to help clean up proactively.
+export async function wreckCast(castId: string): Promise<string> {
+  const session = getSession()
+  if (!session) throw new Error('No session')
+
+  const { Transaction } = await import('@mysten/sui/transactions')
+  const tx = new Transaction()
+
+  tx.moveCall({
+    target:    `${PACKAGE}::cast::wreck`,
+    arguments: [
+      tx.object(castId),  // &mut Cast
+      tx.object(CLOCK),   // &Clock
+    ],
+  })
+
+  tx.setSender(session.address)
+  const result = await executeTx(tx, session.address)
+  return result.digest
+}
+
 export async function payReturnFlareFee(): Promise<string> {
   const session = getSession()
   if (!session) throw new Error('No session')

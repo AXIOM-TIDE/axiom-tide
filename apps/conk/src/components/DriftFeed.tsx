@@ -75,10 +75,30 @@ export function DriftFeed() {
   const vesselId = vessel?.id ?? ''
   const now      = Date.now()
 
+  // Prune expired casts from the store every 60 seconds so Drift stays live.
+  // fetchDriftCasts() already filters on fetch; this handles casts that expire
+  // while the app is open between refreshes.
+  useEffect(() => {
+    const prune = () => {
+      const { driftCasts, setDriftCasts } = useStore.getState()
+      const t = Date.now()
+      const pruned = driftCasts.filter(c => c.isLighthouse || !c.expiresAt || c.expiresAt > t || c.burned === false && (c as any).feePaid === 0)
+      // Only update if something was actually removed
+      if (pruned.length < driftCasts.length) {
+        setDriftCasts(pruned)
+      }
+    }
+    prune() // run immediately on mount
+    const iv = setInterval(prune, 60_000)
+    return () => clearInterval(iv)
+  }, [])
+
   const filtered = casts
     .filter(c => !c.burned)
     .filter(c => !vesselId || !(c.burnedBy ?? []).includes(vesselId))
     .filter(c => c.mode !== 'eyes_only')  // Flares are private — never shown in Drift
+    // Expiry gate: hide casts past their expiry unless they are Lighthouses
+    .filter(c => (c as any).isLighthouse || !(c as any).expiresAt || (c as any).expiresAt > now)
     .filter(c => filter === 'all' ? true : c.mode === filter)
     .filter(c => {
       if (!searchQuery.trim()) return true

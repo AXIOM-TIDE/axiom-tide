@@ -7,14 +7,6 @@ chain-id = "35834a8a"
 published-at = "0x734b19fa1696dec30f8cae38f1cdbf0ab5a12720735f7c7b0d4935cab31732cc"
 original-id = "0x734b19fa1696dec30f8cae38f1cdbf0ab5a12720735f7c7b0d4935cab31732cc"
 version = 1
-upgrade-capability = "0x97ce119a7999e6d50cff74660edbc179cc6e12ab7e749727896dc93eb2c85cee"
-
-
-[published.mainnet]
-chain-id = "35834a8a"
-published-at = "0x734b19fa1696dec30f8cae38f1cdbf0ab5a12720735f7c7b0d4935cab31732cc"
-original-id = "0x734b19fa1696dec30f8cae38f1cdbf0ab5a12720735f7c7b0d4935cab31732cc"
-version = 1
 toolchain-version = "1.72.2"
 build-config = { flavor = "sui", edition = "2024" }
 upgrade-capability = "0x97ce119a7999e6d50cff74660edbc179cc6e12ab7e749727896dc93eb2c85cee"

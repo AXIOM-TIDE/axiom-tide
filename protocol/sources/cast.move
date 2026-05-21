@@ -371,6 +371,53 @@ module axiom_tide::cast {
         });
     }
 
+    // ─── Wreck: zero expired cast content on-chain ───────────────────────────
+    // Callable by anyone after a Cast expires. Zeroes content_blob and marks
+    // STATE_BURNED so the Cast is permanently inert. Enables keeper daemons
+    // to clean up Drift without needing the author's key.
+    //
+    // Rules:
+    //   • Cast must be STATE_LIVE (not already burned)
+    //   • Cast must not be a Lighthouse (Lighthouses never expire)
+    //   • Current time must be ≥ expires_at
+    //
+    // Emits CastBurned so indexers and clients can remove it from feeds.
+
+    const E_NOT_EXPIRED:   u64 = 8;
+    const E_IS_LIGHTHOUSE: u64 = 9;
+
+    public struct CastWrecked has copy, drop {
+        cast_id:    address,
+        wrecked_at: u64,
+    }
+
+    public fun wreck(
+        cast:  &mut Cast,
+        clock: &Clock,
+    ) {
+        let now = clock::timestamp_ms(clock);
+        assert!(cast.state != STATE_BURNED,  E_ALREADY_BURNED);
+        assert!(!cast.is_lighthouse,         E_IS_LIGHTHOUSE);
+        assert!(now >= cast.expires_at,       E_NOT_EXPIRED);
+
+        cast.state        = STATE_BURNED;
+        cast.content_blob = vector::empty();
+        cast.media_blob   = option::none();
+
+        event::emit(CastWrecked {
+            cast_id:    object::id_to_address(&object::id(cast)),
+            wrecked_at: now,
+        });
+
+        // Also emit CastBurned so existing clients that listen for burns
+        // remove this cast from their feed automatically.
+        event::emit(CastBurned {
+            cast_id:   object::id_to_address(&object::id(cast)),
+            mode:      cast.mode,
+            burned_at: now,
+        });
+    }
+
     // ─── View helpers ─────────────────────────────────────────────────────────
     public fun hook(c: &Cast):             vector<u8> { c.hook }
     public fun mode(c: &Cast):             u8         { c.mode }
