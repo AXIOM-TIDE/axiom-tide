@@ -1,8 +1,9 @@
-/// AXIOM TIDE PROTOCOL · v1.0.0
+/// AXIOM TIDE PROTOCOL · v11.0.0
 /// PRIMITIVE 2 OF 7 · VESSEL
 /// The identity. Mortal by design. Holds no USDC.
 /// Ghost · Shadow · Open · fixed at launch.
 /// Temp or permanent. 1yr silence then sinks forever.
+/// v11: lighthouse_count added. record_lighthouse() is owner-gated.
 /// Copyright © 2026 Axiom Tide LLC · axiomtide.com
 module axiom_tide::vessel {
     use sui::object::{Self, UID, ID};
@@ -23,15 +24,18 @@ module axiom_tide::vessel {
     const LIFESPAN_MS: u64 = 365 * 24 * 60 * 60 * 1000;
 
     public struct Vessel has key, store {
-        id:              UID,
-        harbor_id:       ID,
-        owner:           address,
-        tier:            u8,
-        created_at:      u64,
-        last_cast:       u64,
-        cast_count:      u64,
-        active_dock:     address,
-        burn_after_cast: bool,
+        id:               UID,
+        harbor_id:        ID,
+        owner:            address,
+        tier:             u8,
+        created_at:       u64,
+        last_cast:        u64,
+        cast_count:       u64,
+        active_dock:      address,
+        burn_after_cast:  bool,
+        /// v11: incremented by record_lighthouse() when a Cast published
+        /// by this Vessel earns Lighthouse status.
+        lighthouse_count: u64,
     }
 
     public struct VesselCap has key, store {
@@ -75,6 +79,13 @@ module axiom_tide::vessel {
         undocked_at: u64,
     }
 
+    /// v11: emitted when a Lighthouse is acknowledged on this Vessel.
+    public struct VesselLighthouseEarned has copy, drop {
+        vessel_id:        address,
+        lighthouse_count: u64,
+        earned_at:        u64,
+    }
+
     public fun launch(
         harbor_id:       ID,
         tier:            u8,
@@ -89,15 +100,16 @@ module axiom_tide::vessel {
         let owner = tx_context::sender(ctx);
         let now   = clock::timestamp_ms(clock);
         let vessel = Vessel {
-            id:              object::new(ctx),
+            id:               object::new(ctx),
             harbor_id,
             owner,
             tier,
-            created_at:      now,
-            last_cast:       now,
-            cast_count:      0,
-            active_dock:     @0x0,
+            created_at:       now,
+            last_cast:        now,
+            cast_count:       0,
+            active_dock:      @0x0,
             burn_after_cast,
+            lighthouse_count: 0,   // v11
         };
         let vessel_id   = object::id(&vessel);
         let vessel_addr = object::id_to_address(&vessel_id);
@@ -119,6 +131,9 @@ module axiom_tide::vessel {
         cap
     }
 
+    /// Increment cast_count and refresh the liveness timer.
+    /// Called internally by cast::sound() — not directly by publishers anymore.
+    /// Returns burn_after_cast so the SDK can sink the Vessel after sound().
     public fun touch(
         vessel: &mut Vessel,
         cap:    &VesselCap,
@@ -136,6 +151,23 @@ module axiom_tide::vessel {
             expires_at: now + LIFESPAN_MS,
         });
         vessel.burn_after_cast
+    }
+
+    /// v11: Acknowledge that a Cast published by this Vessel earned Lighthouse status.
+    /// Owner-gated via VesselCap. Called by lighthouse::raise() after it has already
+    /// verified that cast::vessel_id(cast) == object::id(vessel).
+    public fun record_lighthouse(
+        vessel: &mut Vessel,
+        cap:    &VesselCap,
+        clock:  &Clock,
+    ) {
+        assert!(cap.vessel_id == object::id(vessel), E_NOT_OWNER);
+        vessel.lighthouse_count = vessel.lighthouse_count + 1;
+        event::emit(VesselLighthouseEarned {
+            vessel_id:        object::id_to_address(&object::id(vessel)),
+            lighthouse_count: vessel.lighthouse_count,
+            earned_at:        clock::timestamp_ms(clock),
+        });
     }
 
     public fun enter_dock(
@@ -183,9 +215,9 @@ module axiom_tide::vessel {
         let now         = clock::timestamp_ms(clock);
         let vessel_addr = object::id_to_address(&object::id(&vessel));
         let casts       = vessel.cast_count;
-        let Vessel { id, harbor_id:_, owner:_, tier:_,
-                     created_at:_, last_cast:_, cast_count:_,
-                     active_dock:_, burn_after_cast:_ } = vessel;
+        let Vessel { id, harbor_id:_, owner:_, tier:_, created_at:_,
+                     last_cast:_, cast_count:_, active_dock:_,
+                     burn_after_cast:_, lighthouse_count:_ } = vessel;
         let VesselCap { id: cap_id, vessel_id:_, harbor_id:_,
                         owner:_, tier:_ } = cap;
         object::delete(id);
@@ -207,14 +239,18 @@ module axiom_tide::vessel {
     }
 
     public fun in_dock(vessel: &Vessel): bool { vessel.active_dock != @0x0 }
-    public fun tier(v: &Vessel):             u8      { v.tier }
-    public fun owner(v: &Vessel):            address { v.owner }
-    public fun harbor_id(v: &Vessel):        ID      { v.harbor_id }
-    public fun cast_count(v: &Vessel):       u64     { v.cast_count }
-    public fun last_cast(v: &Vessel):        u64     { v.last_cast }
-    public fun expires_at(v: &Vessel):       u64     { v.last_cast + LIFESPAN_MS }
-    public fun active_dock(v: &Vessel):      address { v.active_dock }
-    public fun burn_after_cast(v: &Vessel):  bool    { v.burn_after_cast }
+
+    // ─── View helpers ─────────────────────────────────────────────────────────
+    public fun tier(v: &Vessel):              u8      { v.tier }
+    public fun owner(v: &Vessel):             address { v.owner }
+    public fun harbor_id(v: &Vessel):         ID      { v.harbor_id }
+    public fun cast_count(v: &Vessel):        u64     { v.cast_count }
+    public fun last_cast(v: &Vessel):         u64     { v.last_cast }
+    public fun created_at(v: &Vessel):        u64     { v.created_at }
+    public fun expires_at(v: &Vessel):        u64     { v.last_cast + LIFESPAN_MS }
+    public fun active_dock(v: &Vessel):       address { v.active_dock }
+    public fun burn_after_cast(v: &Vessel):   bool    { v.burn_after_cast }
+    public fun lighthouse_count(v: &Vessel):  u64     { v.lighthouse_count }  // v11
     public fun ghost():  u8 { GHOST }
     public fun shadow(): u8 { SHADOW }
     public fun open():   u8 { OPEN }
