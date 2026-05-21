@@ -1,10 +1,16 @@
-/// AXIOM TIDE PROTOCOL · v6.0.0
+/// AXIOM TIDE PROTOCOL · v11.0.0
 /// PRIMITIVE 3 OF 7 · CAST
 /// The communication primitive. Everything is a cast.
 /// Open · Sealed · Eyes Only · Ghost.
 /// v5: Dock mechanics — single-claim by default, open-Dock upgrade at $0.01/slot.
 /// v5: Author payment routing fixed (97% to author, not recipient).
 /// v5: Tide & Lighthouse mechanics preserved on-chain, hidden in CONK UI.
+/// v6: Flare minimum publish fee ($0.05).
+/// v11: BUG-4 fixed — sound() requires &mut Vessel + &VesselCap, calls touch() internally.
+///      vessel_id and vessel_tier derived from Vessel object — not trusted from caller.
+/// v11: lighthouse_path added to Cast struct; set in become_lighthouse().
+/// v11: vessel_id added to CastSounded event for indexer attribution.
+/// v11: read() accepts &ProtocolConfig for dynamic Lighthouse threshold.
 /// Copyright © 2026 Axiom Tide LLC · axiomtide.com
 module axiom_tide::cast {
     use sui::object::{Self, UID, ID};
@@ -15,6 +21,8 @@ module axiom_tide::cast {
     use sui::coin::{Self, Coin};
     use 0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC;
     use axiom_tide::abyss::{Self, Abyss};
+    use axiom_tide::vessel::{Self, Vessel, VesselCap};
+    use axiom_tide::config::{Self, ProtocolConfig};
 
     const E_CAST_EXPIRED:             u64 = 1;
     const E_WRONG_RECIPIENT:          u64 = 2;
@@ -23,14 +31,13 @@ module axiom_tide::cast {
     const E_DOCK_FULL:                u64 = 5;
     const E_INVALID_MAX_CLAIMS:       u64 = 6;
     const E_INSUFFICIENT_UPGRADE_FEE: u64 = 7;
-    const E_INSUFFICIENT_FLARE_FEE:   u64 = 8;  // v6: publish fee below Flare minimum
+    const E_INSUFFICIENT_FLARE_FEE:   u64 = 8;
 
-    const MIN_PAID_PRICE:    u64 = 1_000;
-
-    const DOCK_SLOT_PRICE:        u64 = 10_000;
-    const MIN_FLARE_PUBLISH_FEE:  u64 = 50_000;  // v6: $0.05 minimum to send a Flare (EYES_ONLY)
-    const MIN_MAX_CLAIMS:    u64 = 1;
-    const MAX_MAX_CLAIMS:    u64 = 10_000;
+    const MIN_PAID_PRICE:   u64 = 1_000;
+    const DOCK_SLOT_PRICE:  u64 = 10_000;
+    const MIN_FLARE_PUBLISH_FEE: u64 = 50_000;
+    const MIN_MAX_CLAIMS:   u64 = 1;
+    const MAX_MAX_CLAIMS:   u64 = 10_000;
 
     const MODE_OPEN:      u8 = 0;
     const MODE_SEALED:    u8 = 1;
@@ -45,6 +52,10 @@ module axiom_tide::cast {
     const DUR_72H: u8 = 3;
     const DUR_7D:  u8 = 4;
     const MS_24H:  u64 = 24 * 60 * 60 * 1000;
+
+    /// v11: birth paths for Lighthouse (mirrors lighthouse.move constants)
+    const LH_PATH_MILLION: u8 = 1;
+    const LH_PATH_TIDES:   u8 = 2;
 
     public struct Cast has key, store {
         id:                    UID,
@@ -70,10 +81,18 @@ module axiom_tide::cast {
         claims_used:           u64,
         dock_upgrade_fee_paid: u64,
         dock_description:      vector<u8>,
+        /// v11: which path earned Lighthouse status.
+        /// LH_PATH_MILLION (1) = 1M reads in 24h.
+        /// LH_PATH_TIDES   (2) = 3 × tide_threshold reads.
+        /// 0 = not a Lighthouse.
+        lighthouse_path:       u8,
     }
+
+    // ─── Events ───────────────────────────────────────────────────────────────
 
     public struct CastSounded has copy, drop {
         cast_id:    address,
+        vessel_id:  address,   // v11: added for indexer attribution without object reads
         hook:       vector<u8>,
         mode:       u8,
         duration:   u8,
@@ -101,9 +120,10 @@ module axiom_tide::cast {
     }
 
     public struct LighthouseBorn has copy, drop {
-        cast_id:    address,
-        read_count: u64,
-        born_at:    u64,
+        cast_id:     address,
+        birth_path:  u8,        // v11: included in event
+        read_count:  u64,
+        born_at:     u64,
     }
 
     public struct DockOpened has copy, drop {
@@ -121,11 +141,18 @@ module axiom_tide::cast {
         claimed_at:  u64,
     }
 
+    // ─── sound() — BUG-4 FIX ──────────────────────────────────────────────────
+    //
+    // v11 breaking change: `vessel_id: ID` and `vessel_tier: u8` removed.
+    // Caller must pass the actual Vessel and VesselCap objects.
+    // vessel::touch() is called internally — cast_count is now protocol-enforced.
+    // vessel_id and vessel_tier are derived from the Vessel object, not trusted input.
+
     public fun sound(
         fee_coin:         Coin<USDC>,
         abyss:            &mut Abyss,
-        vessel_id:        ID,
-        vessel_tier:      u8,
+        vessel:           &mut Vessel,      // v11: was vessel_id: ID
+        vessel_cap:       &VesselCap,       // v11: new — for ownership + touch()
         hook:             vector<u8>,
         content_blob:     vector<u8>,
         media_blob:       Option<vector<u8>>,
@@ -144,20 +171,27 @@ module axiom_tide::cast {
         let paid_amount = coin::value(&fee_coin);
         assert!(paid_amount >= dock_upgrade_fee, E_INSUFFICIENT_UPGRADE_FEE);
 
-        // v6: Flares require $0.05 minimum publish fee
         if (mode == MODE_EYES_ONLY) {
             assert!(paid_amount >= MIN_FLARE_PUBLISH_FEE + dock_upgrade_fee, E_INSUFFICIENT_FLARE_FEE);
         };
 
+        // v11: enforce cast_count via protocol — not caller-trust.
+        // touch() asserts VesselCap ownership, Vessel liveness, and increments cast_count.
+        // Returns burn_after_cast — caller (SDK) sinks Vessel after PTB if true.
+        let _burn_after_cast = vessel::touch(vessel, vessel_cap, clock, ctx);
+
+        // Derive vessel_id and tier from object — not trusted from caller.
+        let vessel_id   = object::id(vessel);
+        let vessel_tier = vessel::tier(vessel);
+        let author_addr = vessel::owner(vessel);   // author = vessel owner, not tx sender
+
         let now     = clock::timestamp_ms(clock);
-        let life_ms = if (duration == DUR_24H) MS_24H
-                      else if (duration == DUR_48H) MS_24H * 2
-                      else if (duration == DUR_72H) MS_24H * 3
-                      else MS_24H * 7;
+        let life_ms = if (duration == DUR_24H)      { MS_24H }
+                      else if (duration == DUR_48H)  { MS_24H * 2 }
+                      else if (duration == DUR_72H)  { MS_24H * 3 }
+                      else                           { MS_24H * 7 };
 
         abyss::receive_cast(abyss, fee_coin, clock, ctx);
-
-        let author_addr = tx_context::sender(ctx);
 
         let cast = Cast {
             id:                    object::new(ctx),
@@ -183,11 +217,13 @@ module axiom_tide::cast {
             claims_used:           0,
             dock_upgrade_fee_paid: dock_upgrade_fee,
             dock_description,
+            lighthouse_path:       0,   // v11
         };
         let cast_id = object::id_to_address(&object::id(&cast));
 
         event::emit(CastSounded {
             cast_id,
+            vessel_id: object::id_to_address(&vessel_id),   // v11
             hook: cast.hook,
             mode,
             duration,
@@ -207,10 +243,13 @@ module axiom_tide::cast {
         transfer::share_object(cast);
     }
 
+    // ─── read() — v11: adds &ProtocolConfig for dynamic threshold ─────────────
+
     public fun read(
         cast:     &mut Cast,
         fee_coin: Coin<USDC>,
         abyss:    &mut Abyss,
+        config:   &ProtocolConfig,   // v11: dynamic Lighthouse threshold
         reader:   address,
         clock:    &Clock,
         ctx:      &mut TxContext,
@@ -266,19 +305,28 @@ module axiom_tide::cast {
             return
         };
 
-        if (cast.mode == MODE_OPEN) { check_tide(cast, clock); };
+        // Tide/Lighthouse check: only OPEN Casts qualify.
+        if (cast.mode == MODE_OPEN) { check_tide(cast, config, clock); };
     }
 
-    fun check_tide(cast: &mut Cast, clock: &Clock) {
+    // ─── Internal ─────────────────────────────────────────────────────────────
+
+    fun check_tide(cast: &mut Cast, config: &ProtocolConfig, clock: &Clock) {
         if (cast.is_lighthouse) return;
-        let now    = clock::timestamp_ms(clock);
-        let age_ms = now - cast.created_at;
-        if (age_ms <= MS_24H && cast.read_count >= 1_000_000) {
-            become_lighthouse(cast, now);
+
+        let now            = clock::timestamp_ms(clock);
+        let age_ms         = now - cast.created_at;
+        let threshold      = config::lighthouse_threshold(config);
+        let tide_threshold = config::tide_threshold(config);  // threshold / 2
+
+        // Direct path: threshold reads within 24h
+        if (age_ms <= MS_24H && cast.read_count >= threshold) {
+            become_lighthouse(cast, LH_PATH_MILLION, now);
             return
         };
+
         if (cast.current_tide == 1) {
-            if (cast.read_count >= 500_000 && age_ms <= MS_24H) {
+            if (cast.read_count >= tide_threshold && age_ms <= MS_24H) {
                 cast.tide_1_count = cast.read_count;
                 cast.current_tide = 2;
                 cast.expires_at   = cast.created_at + (MS_24H * 2);
@@ -291,7 +339,7 @@ module axiom_tide::cast {
             }
         } else if (cast.current_tide == 2) {
             let tide_2 = cast.read_count - cast.tide_1_count;
-            if (tide_2 >= 500_000) {
+            if (tide_2 >= tide_threshold) {
                 cast.tide_2_count = tide_2;
                 cast.current_tide = 3;
                 cast.expires_at   = cast.created_at + (MS_24H * 3);
@@ -304,44 +352,52 @@ module axiom_tide::cast {
             }
         } else if (cast.current_tide == 3) {
             let tide_3 = cast.read_count - cast.tide_1_count - cast.tide_2_count;
-            if (tide_3 >= 500_000) {
+            if (tide_3 >= tide_threshold) {
                 cast.tide_3_count = tide_3;
-                become_lighthouse(cast, now);
+                become_lighthouse(cast, LH_PATH_TIDES, now);
             }
         }
     }
 
-    fun become_lighthouse(cast: &mut Cast, now: u64) {
-        cast.is_lighthouse = true;
-        cast.expires_at    = now + (100 * 365 * 24 * 60 * 60 * 1000);
+    fun become_lighthouse(cast: &mut Cast, path: u8, now: u64) {
+        cast.is_lighthouse   = true;
+        cast.lighthouse_path = path;   // v11: record the path
+        cast.expires_at      = now + (100 * 365 * 24 * 60 * 60 * 1000);
         event::emit(LighthouseBorn {
             cast_id:    object::id_to_address(&object::id(cast)),
+            birth_path: path,      // v11: included in event
             read_count: cast.read_count,
             born_at:    now,
         });
     }
 
-    public fun hook(c: &Cast):          vector<u8> { c.hook }
-    public fun mode(c: &Cast):          u8         { c.mode }
-    public fun state(c: &Cast):         u8         { c.state }
-    public fun read_count(c: &Cast):    u64        { c.read_count }
-    public fun is_lighthouse(c: &Cast): bool       { c.is_lighthouse }
-    public fun current_tide(c: &Cast):  u8         { c.current_tide }
-    public fun expires_at(c: &Cast):    u64        { c.expires_at }
-    public fun vessel_id(c: &Cast):     ID         { c.vessel_id }
-    public fun mode_open():      u8 { MODE_OPEN }
-    public fun mode_sealed():    u8 { MODE_SEALED }
-    public fun mode_eyes_only(): u8 { MODE_EYES_ONLY }
-    public fun mode_ghost():     u8 { MODE_GHOST }
-
-    public fun author(c: &Cast):                address    { c.author }
-    public fun max_claims(c: &Cast):            u64        { c.max_claims }
-    public fun claims_used(c: &Cast):           u64        { c.claims_used }
-    public fun claims_remaining(c: &Cast):      u64 {
+    // ─── View helpers ─────────────────────────────────────────────────────────
+    public fun hook(c: &Cast):             vector<u8> { c.hook }
+    public fun mode(c: &Cast):             u8         { c.mode }
+    public fun state(c: &Cast):            u8         { c.state }
+    public fun read_count(c: &Cast):       u64        { c.read_count }
+    public fun is_lighthouse(c: &Cast):    bool       { c.is_lighthouse }
+    public fun current_tide(c: &Cast):     u8         { c.current_tide }
+    public fun expires_at(c: &Cast):       u64        { c.expires_at }
+    public fun vessel_id(c: &Cast):        ID         { c.vessel_id }
+    public fun vessel_tier(c: &Cast):      u8         { c.vessel_tier }
+    public fun author(c: &Cast):           address    { c.author }
+    public fun max_claims(c: &Cast):       u64        { c.max_claims }
+    public fun claims_used(c: &Cast):      u64        { c.claims_used }
+    public fun lighthouse_path(c: &Cast):  u8         { c.lighthouse_path }   // v11
+    public fun content_blob(c: &Cast):     vector<u8> { c.content_blob }      // v11
+    public fun claims_remaining(c: &Cast): u64 {
         if (c.claims_used >= c.max_claims) 0
         else c.max_claims - c.claims_used
     }
     public fun is_dock_full(c: &Cast):          bool       { c.claims_used >= c.max_claims }
     public fun dock_description(c: &Cast):      vector<u8> { c.dock_description }
     public fun dock_upgrade_fee_paid(c: &Cast): u64        { c.dock_upgrade_fee_paid }
+
+    public fun mode_open():      u8 { MODE_OPEN }
+    public fun mode_sealed():    u8 { MODE_SEALED }
+    public fun mode_eyes_only(): u8 { MODE_EYES_ONLY }
+    public fun mode_ghost():     u8 { MODE_GHOST }
+    public fun lh_path_million(): u8 { LH_PATH_MILLION }
+    public fun lh_path_tides():   u8 { LH_PATH_TIDES }
 }
