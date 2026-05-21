@@ -1,0 +1,22 @@
+User-agent: *
+Allow: /
+Allow: /about
+Allow: /primitives
+
+# AI crawlers — welcome. This content is meant to be indexed.
+User-agent: GPTBot
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: GoogleOther
+Allow: /
+
+User-agent: Googlebot
+Allow: /
+
+Sitemap: https://conk.app/sitemap.xml

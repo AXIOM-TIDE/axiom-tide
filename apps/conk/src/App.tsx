@@ -8,6 +8,8 @@ import { Legal } from './pages/Legal'
 import { ZkLoginButton } from './components/ZkLoginButton'
 import { ConkHomeScreen } from './pages/ConkHomeScreen'
 import { AgentsLanding } from './pages/AgentsLanding'
+import { AboutPage }     from './pages/AboutPage'
+import { PrimitivesPage } from './pages/PrimitivesPage'
 import { isLoggedIn, handleZkLoginCallback, startZkLogin, getSession } from './sui/zklogin'
 import { isWalletSession } from './sui/walletSession'
 import { provisionOnChainIdentity } from './sui/bridge'
@@ -111,6 +113,14 @@ export default function App() {
   }, [connected, isOnboarded])
 
   if (checking || restoring) return null
+
+  if (window.location.pathname === '/about') {
+    return <AboutPage />
+  }
+
+  if (window.location.pathname === '/primitives') {
+    return <PrimitivesPage />
+  }
 
   if (window.location.pathname === '/agents') {
     return <AgentsLanding onConnect={async () => {
