@@ -1,7 +1,7 @@
-import { fetchDriftCasts } from '../sui/client'
+import { fetchDriftCasts, fetchCastBodyRaw, readCast } from '../sui/client'
 import { useState, useEffect, useRef } from 'react'
 import { useStore, type Cast, type CastMode } from '../store/store'
-import { use402, useSoundCast } from '../hooks/use402'
+import { useSoundCast } from '../hooks/use402'
 import { formatTide, timeUntilExpiry, formatTimeAgo, castDurationMs, getTideState, getTideLabel } from '../utils/scrubber'
 import { DecayBadge } from './DecayBadge'
 import { WreckModal } from './WreckModal'
@@ -193,8 +193,9 @@ function CastRow({ cast, index }: { cast: Cast; index: number; key?: string }) {
   const storeForVessel  = useStore((s) => s.storeForVessel)
   const debitVessel     = useStore((s) => s.debitVessel)
   const debitHarbor     = useStore((s) => s.debitHarbor)
-  const { pay, status }             = use402({ amount: cast.price ?? 1000, authorAddress: cast.authorAddress })
   const { sound, status: soundSt }  = useSoundCast()
+  const [isPaying,     setIsPaying]     = useState(false)
+  const [pendingBody,  setPendingBody]  = useState('')
 
   const [step,          setStep]          = useState<UnlockStep>('idle')
   const [mapVal,        setMapVal]        = useState('')
@@ -208,9 +209,10 @@ function CastRow({ cast, index }: { cast: Cast; index: number; key?: string }) {
   const [stored,        setStored]        = useState(false)
 
   const now            = Date.now()
-  const isPending      = status === 'pending'
   const isSoundPending = soundSt === 'pending'
-  const isUnlocked     = step === 'unlocked' || cast.body !== undefined
+  // Paid casts arrive with body='' from fetchCastById — only unlock after readCast() confirms.
+  // Free casts and own casts have real body content from the store.
+  const isUnlocked     = step === 'unlocked' || (cast.body !== undefined && cast.body !== '')
   const isBurn         = cast.mode === 'burn'
   const isEyes         = cast.mode === 'eyes_only'
   const isOpen         = cast.mode === 'open'
@@ -240,12 +242,25 @@ function CastRow({ cast, index }: { cast: Cast; index: number; key?: string }) {
   const handleVesselSelected = () => setStep('payway')
 
   const handlePaywayConfirm = async () => {
-    const receipt = await pay()
-    if (!receipt) return
-    if (vesselFuel >= 10) debitVessel(10); else debitHarbor(10)
-    if (isEyes) { setStep('eyes_map'); return }
-    if (hasSecurityQ) { setStep('security'); return }
-    doReveal()
+    setIsPaying(true)
+    try {
+      const payAmount = (cast as any).feePaid ?? cast.price ?? 1000
+      // Capture raw body BEFORE readCast() — required for BURN/EYES_ONLY where contract
+      // clears content_blob in the same tx as the read. For OPEN paid casts the content
+      // persists but we still capture here to avoid a second RPC round-trip.
+      const rawBody = await fetchCastBodyRaw(cast.id)
+      await readCast({ castId: cast.id, amountUsdc: payAmount })
+      setPendingBody(rawBody)
+      if (vesselFuel >= 10) debitVessel(10); else debitHarbor(10)
+      if (isEyes) { setStep('eyes_map'); return }
+      if (hasSecurityQ) { setStep('security'); return }
+      doReveal(rawBody)
+    } catch (err: any) {
+      console.error('[payway] readCast failed:', err)
+      setStep('expanded')
+    } finally {
+      setIsPaying(false)
+    }
   }
 
   const handleMapSubmit = () => {
@@ -264,9 +279,11 @@ function CastRow({ cast, index }: { cast: Cast; index: number; key?: string }) {
     doReveal()
   }
 
-  const doReveal = () => {
-    // Pass empty string so store uses SEED_BODIES[id] fallback for seed casts
-    markCastRead(cast.id, cast.body ?? '')
+  const doReveal = (body?: string) => {
+    // body param: raw content fetched immediately before readCast().
+    // Falls back to pendingBody (set during async payment flow) or cast.body for local/seed casts.
+    const revealBody = body ?? pendingBody ?? cast.body ?? ''
+    markCastRead(cast.id, revealBody)
     useStore.getState().addChartEntry({ type:'cast', id:cast.id, name:cast.hook, visitedAt:now })
     setStep('unlocked')
     if (isBurn) startCountdown()
@@ -323,7 +340,7 @@ function CastRow({ cast, index }: { cast: Cast; index: number; key?: string }) {
         <VesselSelectModal onSelect={handleVesselSelected} onLaunch={() => setStep('idle')} onCancel={() => setStep('expanded')}/>
       )}
       {step === 'payway' && vessel && (
-        <PaywayModal vessel={vessel} hookTitle={cast.hook} mode={cast.mode} hasSecurityQ={hasSecurityQ} autofuel={autofuel} onConfirm={handlePaywayConfirm} onCancel={() => setStep('expanded')} isPending={isPending}/>
+        <PaywayModal vessel={vessel} hookTitle={cast.hook} mode={cast.mode} hasSecurityQ={hasSecurityQ} autofuel={autofuel} onConfirm={handlePaywayConfirm} onCancel={() => setStep('expanded')} isPending={isPaying}/>
       )}
       {step === 'security' && cast.securityQuestion && (
         <SecurityModal question={cast.securityQuestion} onSubmit={handleSecurityAnswer} onCancel={() => setStep('expanded')} error={securityError}/>

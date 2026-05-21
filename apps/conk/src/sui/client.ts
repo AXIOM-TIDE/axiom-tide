@@ -340,7 +340,10 @@ export async function fetchCastById(castId: string): Promise<OnChainCastView | n
     return {
       id:              castId,
       hook:            decodeBytes(f.hook),
-      body:            decodeBytes(f.content_blob),   // empty if already burned
+      // ⚠ SECURITY: blank body for paid casts — content gated behind readCast().
+      // Free casts (fee_paid === 0) and burned casts are unaffected.
+      // Paid content must be fetched via fetchCastBodyRaw() immediately before readCast().
+      body:            Number(f.fee_paid ?? 0) > 0 ? '' : decodeBytes(f.content_blob),
       mode:            modeMap[modeNum]          ?? 'open',
       duration:        durationMap[durationNum]  ?? '24h',
       createdAt:       Number(f.created_at ?? 0),
@@ -363,6 +366,22 @@ export async function fetchCastById(castId: string): Promise<OnChainCastView | n
     console.error('[fetchCastById] fetch failed:', err)
     return null
   }
+}
+
+// ── Fetch raw content_blob for pre-payment capture ─────────────
+// ONLY call this in payment flows, right before readCast().
+// Never use for display without a confirmed on-chain payment transaction.
+export async function fetchCastBodyRaw(castId: string): Promise<string> {
+  try {
+    const result = await rpc('sui_getObject', [castId, { showContent: true }])
+    const f = result?.data?.content?.fields as any
+    if (!f?.content_blob) return ''
+    if (typeof f.content_blob === 'string') return f.content_blob
+    if (Array.isArray(f.content_blob)) {
+      try { return new TextDecoder().decode(new Uint8Array(f.content_blob)) } catch { return '' }
+    }
+    return ''
+  } catch { return '' }
 }
 
 // ── Fetch Open casts for the Drift feed ───────────────────────
