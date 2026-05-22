@@ -272,17 +272,37 @@ module axiom_tide::cast {
             assert!(reader == cast.recipient, E_WRONG_RECIPIENT);
         };
 
+        // v13: Two-payment model.
+        //
+        // Reader sends: PROTOCOL_READ_FEE + cast.fee_paid (total).
+        //
+        //   Free cast (fee_paid = 0):
+        //     Abyss receives: PROTOCOL_READ_FEE ($0.001)
+        //     Author receives: nothing
+        //
+        //   Paid cast (fee_paid > 0):
+        //     Author receives: fee_paid * 97%
+        //     Abyss receives:  PROTOCOL_READ_FEE + fee_paid * 3%
+        //                      (always ≥ PROTOCOL_READ_FEE, satisfies receive_read minimum)
+        //
+        // The flat PROTOCOL_READ_FEE is the Abyss floor that funds protocol operations
+        // regardless of whether the author charges for content.
+
         let paid_amount = coin::value(&fee_coin);
-        if (cast.fee_paid == 0) {
-            abyss::receive_read(abyss, fee_coin, clock, ctx);
-        } else {
-            assert!(paid_amount >= MIN_PAID_PRICE, E_PRICE_TOO_LOW);
-            let author_amount = (paid_amount * 97) / 100;
-            let mut coin_mut = fee_coin;
+        let total_required = abyss::fee_read() + cast.fee_paid;
+        assert!(paid_amount >= total_required, E_PRICE_TOO_LOW);
+
+        let mut coin_mut = fee_coin;
+
+        if (cast.fee_paid > 0) {
+            // Split author’s 97% share and send directly to author
+            let author_amount = (cast.fee_paid * 97) / 100;
             let author_payment = coin::split(&mut coin_mut, author_amount, ctx);
             transfer::public_transfer(author_payment, cast.author);
-            abyss::receive_read(abyss, coin_mut, clock, ctx);
         };
+
+        // Remaining = PROTOCOL_READ_FEE + fee_paid * 3%  (≥ fee_read minimum ✓)
+        abyss::receive_read(abyss, coin_mut, clock, ctx);
 
         cast.read_count = cast.read_count + 1;
         event::emit(CastRead {

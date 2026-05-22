@@ -1,7 +1,7 @@
 /**
  * CONK Sui Integration Layer
  * Deployed to Sui Mainnet — April 24, 2026 (v6); upgraded May 8, 2026 (v7 — fee enforcement); upgraded May 10, 2026 (v7 — sound_v2)
- * Package v12: 0x288aa827aafc16a7ae429f8a82fc512597c481950d98bd6161402a52f9e00745 (wreck() — 2026-05-21)
+ * Package v12: 0x6eca0063f930674f26a4a4593a7ef5ed487e21f31caafe74290ab5df88478cc6 (wreck() — 2026-05-21)
  * Package v11: 0x734b19fa1696dec30f8cae38f1cdbf0ab5a12720735f7c7b0d4935cab31732cc (SUPERSEDED)
  * Treasury: 0xe0117fba317d2267b8d90adca1fe79eceeec756bcf54edf04cc29ee5306ab32e
  * Axiom Tide LLC · Casper, Wyoming
@@ -21,7 +21,7 @@ export const ADDRESSES = {
 }
 
 export const PACKAGES = {
-  CONK:  '0x288aa827aafc16a7ae429f8a82fc512597c481950d98bd6161402a52f9e00745', // v12 — wreck() (2026-05-21)
+  CONK:  '0x6eca0063f930674f26a4a4593a7ef5ed487e21f31caafe74290ab5df88478cc6', // v13 — two-payment read() (2026-05-21)
   RELAY: '0xb4220c9faa4e6be4b557d3c81772f96ef90d5688009887a1c73ef9b7eaa6917c',
 }
 

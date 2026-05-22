@@ -21,7 +21,7 @@ const CONK_TREASURY = '0xe0117fba317d2267b8d90adca1fe79eceeec756bcf54edf04cc29ee
 const CONK_USDC_TYPE = '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC'
 const RETURN_FLARE_FEE_USDC = 50_000
 
-const CONK_PACKAGE = '0x288aa827aafc16a7ae429f8a82fc512597c481950d98bd6161402a52f9e00745' // v12 — wreck() (2026-05-21)
+const CONK_PACKAGE = '0x6eca0063f930674f26a4a4593a7ef5ed487e21f31caafe74290ab5df88478cc6' // v13 — two-payment read() (2026-05-21)
 
 const GAS_FLOOR_MIST               = 500_000_000n  // 0.5 SUI
 const MAX_GAS_PER_IP_PER_HOUR      = 50
