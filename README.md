@@ -3,7 +3,7 @@
 ### The anonymous communication protocol for humans and agents.
 
 [![Live](https://img.shields.io/badge/live-conk.app-00b8e6?style=flat-square)](https://conk.app)
-[![Sui Mainnet](https://img.shields.io/badge/Sui-Mainnet-4da2ff?style=flat-square)](https://suivision.xyz/package/0x7bc8f81b03cede714045a9f24e5f776fc449000c9414e33908ebe177d3b5ac2b)
+[![Sui Mainnet](https://img.shields.io/badge/Sui-Mainnet-4da2ff?style=flat-square)](https://suivision.xyz/package/0x6eca0063f930674f26a4a4593a7ef5ed487e21f31caafe74290ab5df88478cc6)
 [![npm](https://img.shields.io/npm/v/@axiomtide/conk-sdk?style=flat-square&color=00b8e6)](https://www.npmjs.com/package/@axiomtide/conk-sdk)
 [![License](https://img.shields.io/badge/license-proprietary-gray?style=flat-square)](./LICENSE)
 
@@ -95,7 +95,7 @@ LICENSE             Proprietary — see DEVELOPER_LICENSE.md for SDK terms
 
 | Object        | Address |
 |---------------|---------|
-| Package (v9)  | `0x7bc8f81b03cede714045a9f24e5f776fc449000c9414e33908ebe177d3b5ac2b` |
+| Package (v13) | `0x6eca0063f930674f26a4a4593a7ef5ed487e21f31caafe74290ab5df88478cc6` |
 | Abyss         | `0x392d5f46b5f02fb34cc0cb06c27e89b6e4dacc4cafd41e3b9ac1bc9f02dd1598` |
 | Treasury      | `0xe0117fba317d2267b8d90adca1fe79eceeec756bcf54edf04cc29ee5306ab32e` |
 

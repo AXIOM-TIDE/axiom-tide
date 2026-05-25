@@ -10,7 +10,9 @@ import { isWalletSession, signWithWallet } from './walletSession'
 
 export const NETWORK   = 'mainnet'
 export const USDC_TYPE = '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC'
-export const SUI_RPC   = 'https://fullnode.mainnet.sui.io:443'
+// Tatum enterprise Sui RPC — Tatum × Walrus Hackathon requirement
+export const SUI_RPC   = 'https://sui-mainnet.gateway.tatum.io'
+const TATUM_API_KEY    = 't-6a148cf82a008398a3ef2ed0-68d0fa83c0b74fbe9c9550ba'
 
 const PROXY   = RPC.PROXY
 const PACKAGE = PACKAGES.CONK
@@ -41,7 +43,13 @@ let _client: unknown = null
 export async function getSuiClient() {
   if (_client) return _client
   const { SuiClient } = await import('@mysten/sui/client')
-  _client = new SuiClient({ url: SUI_RPC })
+  const { SuiHTTPTransport } = await import('@mysten/sui/client')
+  _client = new SuiClient({
+    transport: new SuiHTTPTransport({
+      url: SUI_RPC,
+      rpc: { headers: { 'x-api-key': TATUM_API_KEY } },
+    }),
+  })
   return _client as InstanceType<typeof import('@mysten/sui/client').SuiClient>
 }
 

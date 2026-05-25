@@ -2,8 +2,12 @@ name = "conk-zkproxy-v2"
 main = "worker.js"
 compatibility_date = "2024-01-01"
 compatibility_flags = ["nodejs_compat"]
-account_id = "49eacdb17d3716275f23b560bf6cc04a"
+account_id = "a48e9ca0770bceffe40239697f2edc63"
+
+[vars]
+# Tatum enterprise Sui RPC — Tatum × Walrus Hackathon
+TATUM_API_KEY = "t-6a148cf82a008398a3ef2ed0-68d0fa83c0b74fbe9c9550ba"
 
 [[kv_namespaces]]
 binding = "RATE_LIMITER"
-id = "bf2beb08fa7f4d85a669b2ee4f13619f"
+id = "66387b5b47734693807124859367fc1d"
