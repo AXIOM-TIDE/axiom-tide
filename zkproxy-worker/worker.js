@@ -241,7 +241,7 @@ export default {
 
         const epochs = url.searchParams.get('epochs') || '5'
         const resp   = await fetch(
-          'https://publisher.walrus.site/v1/store?epochs=' + epochs,
+          'https://newman-hotels-raleigh-queens.trycloudflare.com/v1/store?epochs=' + epochs,
           { method: 'PUT', headers: { 'Content-Type': ct }, body: bytes },
         )
         const text = await resp.text()
