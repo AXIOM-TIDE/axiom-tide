@@ -6,7 +6,7 @@
  * Axiom Tide LLC · Casper, Wyoming
  */
 
-const PROXY = 'https://conk-zkproxy-v2.italktonumbers.workers.dev'
+const PROXY = 'https://conk-zkproxy-v2.axiomtide.workers.dev'
 
 export const NETWORK = import.meta.env.VITE_NETWORK || 'mainnet'
 

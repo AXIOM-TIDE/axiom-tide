@@ -225,7 +225,7 @@ export function DockPanel() {
       const txDigest = await payReturnFlareFee()
       setReturnStatus(s => ({ ...s, [f.castId]: 'sending…' }))
 
-      const res = await fetch('https://conk-zkproxy-v2.italktonumbers.workers.dev/return-flare', {
+      const res = await fetch('https://conk-zkproxy-v2.axiomtide.workers.dev/return-flare', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

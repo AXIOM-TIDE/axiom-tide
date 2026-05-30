@@ -170,7 +170,7 @@ export function useSoundCast() {
         // Flare — deliver cast link to email via worker
         if (payload.flare?.trim()) {
           const castUrl = `https://conk.app/cast/${castId || castTxDigest}`
-          fetch('https://conk-zkproxy-v2.italktonumbers.workers.dev/flare', {
+          fetch('https://conk-zkproxy-v2.axiomtide.workers.dev/flare', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

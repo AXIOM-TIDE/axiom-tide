@@ -26,7 +26,7 @@ export async function startZkLogin(): Promise<void> {
   const randomness = generateRandomness()
 
   // Use CORS-friendly RPC directly for epoch (proxy blocks outbound)
-  const epochRes = await fetch('https://conk-zkproxy-v2.italktonumbers.workers.dev/sui', {
+  const epochRes = await fetch('https://conk-zkproxy-v2.axiomtide.workers.dev/sui', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'suix_getLatestSuiSystemState', params: [] })
